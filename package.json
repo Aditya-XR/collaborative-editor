@@ -1,0 +1,15 @@
+{
+  "name": "collaborative-editor",
+  "version": "1.0.0",
+  "description": "Collaborative Editor - MERN Stack Application",
+  "main": "server/index.js",
+  "scripts": {
+    "install-all": "npm install && npm install --prefix server && npm install --prefix client",
+    "server": "npm run dev --prefix server",
+    "client": "npm run dev --prefix client",
+    "dev": "concurrently \"npm run server\" \"npm run client\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
