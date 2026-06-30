@@ -10,6 +10,10 @@ const documentSchema = new Schema(
       type: Object,
       default: '',
     },
+    title: {
+      type: String,
+      default: 'Untitled Document',
+    },
   },
   { timestamps: true }
 );

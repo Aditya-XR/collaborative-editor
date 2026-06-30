@@ -63,16 +63,26 @@ io.on('connection', (socket) => {
 
     // Load or create the document
     const document = await findOrCreateDocument(documentId);
-    socket.emit('load-document', document.data);
+    socket.emit('load-document', { data: document.data, title: document.title });
 
     // Broadcast incoming mutations (deltas) to others in the same room
     socket.on('send-changes', (delta) => {
       socket.to(documentId).emit('receive-changes', delta);
     });
 
+    // Broadcast incoming title changes to others in the same room
+    socket.on('send-title-changes', (title) => {
+      socket.to(documentId).emit('receive-title-changes', title);
+    });
+
     // Save the document updates
     socket.on('save-document', async (data) => {
       await Document.findByIdAndUpdate(documentId, { data });
+    });
+
+    // Save the title updates
+    socket.on('save-title', async (title) => {
+      await Document.findByIdAndUpdate(documentId, { title });
     });
   });
 
