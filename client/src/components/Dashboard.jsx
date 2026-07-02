@@ -67,7 +67,7 @@ const Dashboard = () => {
   // 3. Create Document Handler
   const handleCreateDocument = () => {
     const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
-    navigate(`/documents/${newId}`);
+    navigate(`/document/${newId}`);
   };
 
   // 4. Delete Document Handler
@@ -112,7 +112,7 @@ const Dashboard = () => {
   // 6. Copy Link Handler
   const handleCopyLink = (e, id) => {
     e.stopPropagation();
-    const link = `${window.location.origin}/documents/${id}`;
+    const link = `${window.location.origin}/document/${id}`;
     navigator.clipboard.writeText(link).then(() => {
       setCopiedId(id);
       setActiveMenuId(null);
@@ -125,7 +125,7 @@ const Dashboard = () => {
     e.stopPropagation();
     setActiveMenuId(null);
     // Opens document in a print-ready blank tab
-    const printWindow = window.open(`/documents/${id}`, '_blank');
+    const printWindow = window.open(`/document/${id}`, '_blank');
     if (printWindow) {
       // Set a tiny delay so Quill can initialize and populate data before print dialog triggers
       printWindow.onload = () => {
@@ -285,7 +285,7 @@ const Dashboard = () => {
               {sortedDocs.map((doc) => (
                 <div
                   key={doc._id}
-                  onClick={() => navigate(`/documents/${doc._id}`)}
+                  onClick={() => navigate(`/document/${doc._id}`)}
                   className="bg-white border border-slate-200 rounded-xl p-5 hover:border-purple-400 hover:shadow-md transition-all duration-300 cursor-pointer group flex flex-col justify-between h-40 relative"
                 >
                   <div className="flex items-start justify-between">

@@ -26,6 +26,21 @@ router.get('/documents', async (req, res) => {
   }
 });
 
+// @desc    Get a single document metadata
+// @route   GET /api/documents/:id
+// @access  Public
+router.get('/documents/:id', async (req, res) => {
+  try {
+    const document = await Document.findById(req.params.id, '_id title updatedAt');
+    if (!document) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+    res.json(document);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // @desc    Rename a document
 // @route   PUT /api/documents/:id
 // @access  Public

@@ -8,7 +8,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/documents/:id" element={<TextEditor />} />
+        <Route path="/document/:id" element={<TextEditor />} />
         {/* Redirect any other path to Dashboard */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

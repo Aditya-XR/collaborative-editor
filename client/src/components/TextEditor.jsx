@@ -5,6 +5,10 @@ import { io } from 'socket.io-client';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 
+import * as Y from 'yjs';
+import { WebsocketProvider } from 'y-websocket';
+import { QuillBinding } from 'y-quill';
+
 // Styling override component to customize Quill appearance to be premium
 const EditorStyleOverride = () => (
   <style>{`
@@ -119,7 +123,24 @@ const TextEditor = () => {
   const [saveStatus, setSaveStatus] = useState('connecting'); // 'connecting' | 'saving' | 'saved' | 'error'
   const [copied, setCopied] = useState(false);
 
-  // 1. Establish Socket Connection
+  // Presence and Cursor Overlay States
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [cursorCoords, setCursorCoords] = useState({});
+  const [userInfo] = useState(() => {
+    const names = [
+      'Stellar Scribe', 'Galactic Author', 'Nebula Editor', 'Nova Writer', 
+      'Cosmic Ink', 'Astral Typist', 'Quantum Poet', 'Solar Scholar'
+    ];
+    const colors = [
+      '#7c3aed', '#3b82f6', '#ec4899', '#f59e0b', 
+      '#10b981', '#ef4444', '#06b6d4', '#8b5cf6'
+    ];
+    const randomName = `${names[Math.floor(Math.random() * names.length)]} ${Math.floor(Math.random() * 90 + 10)}`;
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    return { name: randomName, color: randomColor };
+  });
+
+  // 1. Establish Socket Connection for Presence and Metadata Sync
   useEffect(() => {
     const s = io('http://localhost:5000');
     setSocket(s);
@@ -133,7 +154,7 @@ const TextEditor = () => {
     };
   }, []);
 
-  // 2. Initialize Quill editor
+  // 2. Initialize Quill Editor
   const wrapperRef = useCallback((wrapper) => {
     if (wrapper == null) return;
 
@@ -162,53 +183,155 @@ const TextEditor = () => {
     setQuill(q);
   }, []);
 
-  // 3. Connect Socket with Quill
+  // 3. Initialize Yjs, y-websocket, and Quill Binding
   useEffect(() => {
-    if (socket == null || quill == null) return;
+    if (quill == null || !documentId) return;
 
-    socket.emit('get-document', documentId);
+    const doc = new Y.Doc();
+    const provider = new WebsocketProvider(
+      'ws://localhost:5000/yjs',
+      documentId,
+      doc
+    );
 
-    socket.once('load-document', ({ data, title: loadedTitle }) => {
-      quill.setContents(data);
-      quill.enable();
-      setTitle(loadedTitle || 'Untitled Document');
-      setSaveStatus('saved');
+    const ytext = doc.getText('quill');
+    const binding = new QuillBinding(ytext, quill);
+
+    // Update status indicators using the Yjs websocket provider connection state
+    provider.on('status', ({ status }) => {
+      if (status === 'connected') {
+        setSaveStatus('saved');
+      } else if (status === 'connecting') {
+        setSaveStatus('connecting');
+      } else {
+        setSaveStatus('error');
+      }
     });
+
+    provider.on('sync', (isSynced) => {
+      if (isSynced) {
+        quill.enable();
+        // Remove the loading text and focus the editor
+        if (quill.getText().trim() === 'Loading document...') {
+          quill.setText('');
+        }
+      }
+    });
+
+    return () => {
+      binding.destroy();
+      provider.destroy();
+      doc.destroy();
+    };
+  }, [quill, documentId]);
+
+  // 4. Handle Socket.io Presence and Meta Synchronization
+  useEffect(() => {
+    if (socket == null || !documentId) return;
+
+    // Join presence room
+    socket.emit('join-document', {
+      documentId,
+      username: userInfo.name,
+      color: userInfo.color
+    });
+
+    // Load initial document metadata (title) via API
+    const loadMetadata = async () => {
+      try {
+        const res = await fetch(`http://localhost:5000/api/documents/${documentId}`);
+        if (res.ok) {
+          const doc = await res.json();
+          if (doc && doc.title) {
+            setTitle(doc.title);
+          } else {
+            setTitle('Untitled Document');
+          }
+        } else {
+          setTitle('Untitled Document');
+        }
+      } catch (err) {
+        console.error('Error fetching metadata:', err);
+        setTitle('Untitled Document');
+      }
+    };
+    loadMetadata();
+
+    // Listen to live presence list updates
+    socket.on('presence-update', (users) => {
+      setActiveUsers(users);
+    });
+
+    // Listen to title modifications
+    socket.on('receive-title-changes', (newTitle) => {
+      setTitle(newTitle);
+    });
+
+    return () => {
+      socket.off('presence-update');
+      socket.off('receive-title-changes');
+    };
+  }, [socket, documentId, userInfo]);
+
+  // 5. Monitor Caret Selection and emit to Socket.io for Cursor Tracking
+  useEffect(() => {
+    if (socket == null || quill == null || !documentId) return;
+
+    const handleSelectionChange = (range) => {
+      if (range) {
+        socket.emit('cursor-move', {
+          documentId,
+          range: { index: range.index, length: range.length }
+        });
+      }
+    };
+
+    quill.on('selection-change', handleSelectionChange);
+
+    return () => {
+      quill.off('selection-change', handleSelectionChange);
+    };
   }, [socket, quill, documentId]);
 
-  // 4. Handle text changes: Emit to server
+  // 6. Recalculate and update cursor screen coordinates
+  const updateCursorPositions = useCallback(() => {
+    if (!quill) return;
+    const newCoords = {};
+    activeUsers.forEach(user => {
+      if (user.socketId === socket?.id || !user.cursor) return;
+      try {
+        const bounds = quill.getBounds(user.cursor.index);
+        if (bounds) {
+          newCoords[user.socketId] = {
+            left: bounds.left,
+            top: bounds.top,
+            height: bounds.height
+          };
+        }
+      } catch (e) {
+        // Index out of range
+      }
+    });
+    setCursorCoords(newCoords);
+  }, [quill, activeUsers, socket]);
+
+  // Trigger coordinate recalcs on presence updates, text changes or selection changes
   useEffect(() => {
-    if (socket == null || quill == null) return;
+    updateCursorPositions();
+  }, [activeUsers, updateCursorPositions]);
 
-    const handler = (delta, oldDelta, source) => {
-      if (source !== 'user') return;
-      socket.emit('send-changes', delta);
-      setSaveStatus('saving');
-    };
-
+  useEffect(() => {
+    if (!quill) return;
+    const handler = () => updateCursorPositions();
     quill.on('text-change', handler);
-
+    quill.on('selection-change', handler);
     return () => {
       quill.off('text-change', handler);
+      quill.off('selection-change', handler);
     };
-  }, [socket, quill]);
+  }, [quill, updateCursorPositions]);
 
-  // 5. Handle incoming changes: Update Quill
-  useEffect(() => {
-    if (socket == null || quill == null) return;
-
-    const handler = (delta) => {
-      quill.updateContents(delta);
-    };
-
-    socket.on('receive-changes', handler);
-
-    return () => {
-      socket.off('receive-changes', handler);
-    };
-  }, [socket, quill]);
-
-  // 6. Handle Document Title Updates from Local
+  // 7. Handle Document Title Updates from Local
   const handleTitleChange = (e) => {
     const newTitle = e.target.value;
     setTitle(newTitle);
@@ -216,44 +339,12 @@ const TextEditor = () => {
     
     if (socket) {
       socket.emit('send-title-changes', newTitle);
-      socket.emit('save-title', newTitle);
-      // Immediately set save status as saved since socket title save is instant
+      socket.emit('save-title', { documentId, title: newTitle });
       setTimeout(() => setSaveStatus('saved'), 500);
     }
   };
 
-  // 7. Receive Title Changes from other users
-  useEffect(() => {
-    if (socket == null) return;
-
-    const handler = (newTitle) => {
-      setTitle(newTitle);
-    };
-
-    socket.on('receive-title-changes', handler);
-
-    return () => {
-      socket.off('receive-title-changes', handler);
-    };
-  }, [socket]);
-
-  // 8. Auto-save document content to database
-  useEffect(() => {
-    if (socket == null || quill == null) return;
-
-    const interval = setInterval(() => {
-      if (saveStatus === 'saving') {
-        socket.emit('save-document', quill.getContents());
-        setSaveStatus('saved');
-      }
-    }, 2000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [socket, quill, saveStatus]);
-
-  // 9. Copy Share Room Link to Clipboard
+  // 8. Copy Share Room Link to Clipboard
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href).then(() => {
       setCopied(true);
@@ -323,32 +414,30 @@ const TextEditor = () => {
 
           {/* Right Action Section */}
           <div className="flex items-center space-x-4 ml-4 shrink-0">
-            {/* Active Users Avatars Placeholder */}
+            {/* Active Users Avatars */}
             <div className="hidden sm:flex items-center -space-x-2 mr-2">
-              <div 
-                className="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center font-semibold text-xs border-2 border-white shadow-sm cursor-help"
-                title="You (Collaborator)"
-              >
-                AK
-              </div>
-              <div 
-                className="w-8 h-8 rounded-full bg-indigo-500 text-white flex items-center justify-center font-semibold text-xs border-2 border-white shadow-sm cursor-help"
-                title="Jane Doe (Editor)"
-              >
-                JD
-              </div>
-              <div 
-                className="w-8 h-8 rounded-full bg-pink-500 text-white flex items-center justify-center font-semibold text-xs border-2 border-white shadow-sm cursor-help"
-                title="Sam Wilson (Viewer)"
-              >
-                SW
-              </div>
-              <div 
-                className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-semibold text-[10px] border-2 border-white shadow-sm cursor-help"
-                title="2 other active editors"
-              >
-                +2
-              </div>
+              {activeUsers.map((user, idx) => {
+                const initials = user.username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                const isMe = user.socketId === socket?.id;
+                return (
+                  <div 
+                    key={user.socketId || idx}
+                    className="w-8 h-8 rounded-full text-white flex items-center justify-center font-semibold text-xs border-2 border-white shadow-sm cursor-help transition-all duration-200 hover:-translate-y-0.5"
+                    style={{ backgroundColor: user.color }}
+                    title={`${user.username} ${isMe ? '(You)' : ''}`}
+                  >
+                    {initials}
+                  </div>
+                );
+              })}
+              {activeUsers.length > 5 && (
+                <div 
+                  className="w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-semibold text-[10px] border-2 border-white shadow-sm"
+                  title={`${activeUsers.length - 5} other active editors`}
+                >
+                  +{activeUsers.length - 5}
+                </div>
+              )}
             </div>
 
             {/* Copy Link Button */}
@@ -389,8 +478,40 @@ const TextEditor = () => {
             <span>CollabEdit Workspace</span>
           </div>
           
-          {/* Main Quill editor mount point */}
-          <div ref={wrapperRef} className="mt-4" />
+          {/* Main Quill editor mount point with custom caret overlay */}
+          <div className="relative mt-4">
+            <div ref={wrapperRef} />
+            
+            {/* Custom Carets Overlay */}
+            {activeUsers.map(user => {
+              const coords = cursorCoords[user.socketId];
+              if (!coords) return null;
+              return (
+                <div
+                  key={user.socketId}
+                  className="absolute pointer-events-none z-10 transition-all duration-75"
+                  style={{
+                    left: `${coords.left}px`,
+                    top: `${coords.top}px`,
+                    height: `${coords.height}px`,
+                  }}
+                >
+                  {/* Caret Line */}
+                  <div 
+                    className="w-[2px] h-full" 
+                    style={{ backgroundColor: user.color }}
+                  />
+                  {/* Label */}
+                  <div 
+                    className="absolute bottom-full left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm animate-fade-in"
+                    style={{ backgroundColor: user.color }}
+                  >
+                    {user.username}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </main>
     </div>
