@@ -6,7 +6,9 @@ import { Server } from 'socket.io';
 import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { WebSocketServer } from 'ws';
-import * as Y from 'yjs';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const Y = require('yjs');
 import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 
 import connectDB from './config/db.js';
