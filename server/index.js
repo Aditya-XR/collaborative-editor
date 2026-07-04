@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
+import jwt from 'jsonwebtoken';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { createClient } from 'redis';
@@ -14,6 +16,7 @@ import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 import connectDB from './config/db.js';
 import apiRouter from './routes/api.js';
 import Document from './models/Document.js';
+import User from './models/User.js';
 
 // C++ namespace std naming equivalents for clean scope lookup
 const { log, error } = console;
@@ -30,8 +33,12 @@ connectDB();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
 
 // Routes
 app.use('/api', apiRouter);
@@ -68,11 +75,32 @@ log('Connected to Upstash Redis for adapter and caching.');
 // Attach Socket.io Server with Redis Adapter
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: 'http://localhost:5173',
     methods: ['GET', 'POST'],
+    credentials: true
   },
 });
 io.adapter(createAdapter(pubClient, subClient));
+
+// Socket.io JWT Authentication Middleware
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (!token) {
+      return next(new Error('Authentication error: Token required'));
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded._id).select('-password -refreshTokens');
+    if (!user) {
+      return next(new Error('Authentication error: User not found'));
+    }
+    socket.user = user;
+    next();
+  } catch (err) {
+    error('Socket auth error:', err);
+    return next(new Error('Authentication error: Invalid token'));
+  }
+});
 
 // Setup Yjs WebSockets Server on the same HTTP server
 const wss = new WebSocketServer({ noServer: true });
@@ -82,13 +110,31 @@ wss.on('connection', (ws, req) => {
   setupWSConnection(ws, req, { docName });
 });
 
-// Intercept server upgrades to route /yjs websocket traffic
+// Intercept server upgrades to route /yjs websocket traffic (with JWT authorization check)
 server.on('upgrade', (request, socket, head) => {
-  const { pathname } = new URL(request.url, `http://${request.headers.host}`);
+  const urlObj = new URL(request.url, `http://${request.headers.host}`);
+  const { pathname } = urlObj;
+  
   if (pathname.startsWith('/yjs')) {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
+    const token = urlObj.searchParams.get('token');
+    if (!token) {
+      log('Yjs upgrade rejected: No token provided');
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    try {
+      jwt.verify(token, process.env.JWT_SECRET);
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } catch (err) {
+      log('Yjs upgrade rejected: Invalid/Expired token');
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+    }
+  } else {
+    socket.destroy();
   }
 });
 
@@ -140,18 +186,46 @@ setPersistence({
 
 // Socket.io presence, cursor tracking and metadata signaling logic
 io.on('connection', (socket) => {
-  log(`Socket.io client connected: ${socket.id}`);
+  log(`Socket.io client connected: ${socket.id} (User: ${socket.user.name})`);
   let currentRoom = null;
 
-  socket.on('join-document', async ({ documentId, username, color }) => {
+  socket.on('join-document', async ({ documentId }) => {
+    try {
+      // Validate document access or assign ownership/collaboration
+      const document = await Document.findById(documentId);
+      if (document) {
+        const userIdStr = socket.user._id.toString();
+        const ownerIdStr = document.owner ? document.owner.toString() : null;
+        
+        if (ownerIdStr !== userIdStr) {
+          const isCollaborator = document.collaborators.some(cId => cId.toString() === userIdStr);
+          if (!isCollaborator) {
+            document.collaborators.push(socket.user._id);
+            await document.save();
+          }
+        }
+      } else {
+        // Document does not exist in DB yet, create it with this user as owner
+        await Document.create({
+          _id: documentId,
+          title: 'Untitled Document',
+          owner: socket.user._id,
+          collaborators: []
+        });
+      }
+    } catch (err) {
+      error('Socket join document verification error:', err);
+    }
+
     socket.join(documentId);
     currentRoom = documentId;
-    log(`User ${socket.id} (${username}) joined presence room: ${documentId}`);
+    log(`User ${socket.id} (${socket.user.name}) joined presence room: ${documentId}`);
 
     const presenceData = {
       socketId: socket.id,
-      username,
-      color,
+      username: socket.user.name,
+      color: socket.user.color,
+      avatar: socket.user.avatar || '',
       cursor: null,
       updatedAt: now()
     };

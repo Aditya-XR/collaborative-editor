@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { ArrowLeft, FileText, Link, Check, Cloud, RefreshCw, AlertCircle } from 'lucide-react';
 import { io } from 'socket.io-client';
 import Quill from 'quill';
@@ -117,6 +118,7 @@ const TextEditor = () => {
   const { id: documentId } = useParams();
   const navigate = useNavigate();
 
+  const { user, token, authFetch } = useAuth();
   const [socket, setSocket] = useState(null);
   const [quill, setQuill] = useState(null);
   const [title, setTitle] = useState('Loading...');
@@ -126,23 +128,14 @@ const TextEditor = () => {
   // Presence and Cursor Overlay States
   const [activeUsers, setActiveUsers] = useState([]);
   const [cursorCoords, setCursorCoords] = useState({});
-  const [userInfo] = useState(() => {
-    const names = [
-      'Stellar Scribe', 'Galactic Author', 'Nebula Editor', 'Nova Writer', 
-      'Cosmic Ink', 'Astral Typist', 'Quantum Poet', 'Solar Scholar'
-    ];
-    const colors = [
-      '#7c3aed', '#3b82f6', '#ec4899', '#f59e0b', 
-      '#10b981', '#ef4444', '#06b6d4', '#8b5cf6'
-    ];
-    const randomName = `${names[Math.floor(Math.random() * names.length)]} ${Math.floor(Math.random() * 90 + 10)}`;
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-    return { name: randomName, color: randomColor };
-  });
 
   // 1. Establish Socket Connection for Presence and Metadata Sync
   useEffect(() => {
-    const s = io('http://localhost:5000');
+    if (!token) return;
+    
+    const s = io('http://localhost:5000', {
+      auth: { token }
+    });
     setSocket(s);
 
     s.on('connect_error', () => {
@@ -152,7 +145,7 @@ const TextEditor = () => {
     return () => {
       s.disconnect();
     };
-  }, []);
+  }, [token]);
 
   // 2. Initialize Quill Editor
   const wrapperRef = useCallback((wrapper) => {
@@ -185,13 +178,14 @@ const TextEditor = () => {
 
   // 3. Initialize Yjs, y-websocket, and Quill Binding
   useEffect(() => {
-    if (quill == null || !documentId) return;
+    if (quill == null || !documentId || !token) return;
 
     const doc = new Y.Doc();
     const provider = new WebsocketProvider(
       'ws://localhost:5000/yjs',
       documentId,
-      doc
+      doc,
+      { params: { token } }
     );
 
     const ytext = doc.getText('quill');
@@ -231,15 +225,13 @@ const TextEditor = () => {
 
     // Join presence room
     socket.emit('join-document', {
-      documentId,
-      username: userInfo.name,
-      color: userInfo.color
+      documentId
     });
 
     // Load initial document metadata (title) via API
     const loadMetadata = async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/documents/${documentId}`);
+        const res = await authFetch(`http://localhost:5000/api/documents/${documentId}`);
         if (res.ok) {
           const doc = await res.json();
           if (doc && doc.title) {
@@ -416,15 +408,23 @@ const TextEditor = () => {
           <div className="flex items-center space-x-4 ml-4 shrink-0">
             {/* Active Users Avatars */}
             <div className="hidden sm:flex items-center -space-x-2 mr-2">
-              {activeUsers.map((user, idx) => {
-                const initials = user.username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-                const isMe = user.socketId === socket?.id;
-                return (
+              {activeUsers.map((u, idx) => {
+                const initials = u.username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                const isMe = u.socketId === socket?.id;
+                return u.avatar ? (
+                  <img
+                    key={u.socketId || idx}
+                    src={u.avatar}
+                    alt={u.username}
+                    className="w-8 h-8 rounded-full border-2 border-white shadow-sm cursor-help transition-all duration-200 hover:-translate-y-0.5 object-cover"
+                    title={`${u.username} ${isMe ? '(You)' : ''}`}
+                  />
+                ) : (
                   <div 
-                    key={user.socketId || idx}
+                    key={u.socketId || idx}
                     className="w-8 h-8 rounded-full text-white flex items-center justify-center font-semibold text-xs border-2 border-white shadow-sm cursor-help transition-all duration-200 hover:-translate-y-0.5"
-                    style={{ backgroundColor: user.color }}
-                    title={`${user.username} ${isMe ? '(You)' : ''}`}
+                    style={{ backgroundColor: u.color }}
+                    title={`${u.username} ${isMe ? '(You)' : ''}`}
                   >
                     {initials}
                   </div>
@@ -483,12 +483,12 @@ const TextEditor = () => {
             <div ref={wrapperRef} />
             
             {/* Custom Carets Overlay */}
-            {activeUsers.map(user => {
-              const coords = cursorCoords[user.socketId];
+            {activeUsers.map(u => {
+              const coords = cursorCoords[u.socketId];
               if (!coords) return null;
               return (
                 <div
-                  key={user.socketId}
+                  key={u.socketId}
                   className="absolute pointer-events-none z-10 transition-all duration-75"
                   style={{
                     left: `${coords.left}px`,
@@ -499,14 +499,17 @@ const TextEditor = () => {
                   {/* Caret Line */}
                   <div 
                     className="w-[2px] h-full" 
-                    style={{ backgroundColor: user.color }}
+                    style={{ backgroundColor: u.color }}
                   />
                   {/* Label */}
                   <div 
-                    className="absolute bottom-full left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm animate-fade-in"
-                    style={{ backgroundColor: user.color }}
+                    className="absolute bottom-full left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm animate-fade-in flex items-center space-x-1"
+                    style={{ backgroundColor: u.color }}
                   >
-                    {user.username}
+                    {u.avatar && (
+                      <img src={u.avatar} alt="" className="w-3.5 h-3.5 rounded-full object-cover shrink-0" />
+                    )}
+                    <span>{u.username}</span>
                   </div>
                 </div>
               );

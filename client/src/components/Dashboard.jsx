@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { 
   Plus, FileText, Trash2, MoreVertical, Search, 
-  ArrowUpDown, X, Edit3, Link, Printer, Check, AlertTriangle 
+  ArrowUpDown, X, Edit3, Link, Printer, Check, AlertTriangle, LogOut 
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user, logout, authFetch } = useAuth();
 
   // State Management
   const [documents, setDocuments] = useState([]);
@@ -36,7 +38,7 @@ const Dashboard = () => {
   const fetchDocuments = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/documents`);
+      const res = await authFetch(`${API_BASE}/documents`);
       if (!res.ok) throw new Error('Failed to fetch documents');
       const data = await res.json();
       setDocuments(data);
@@ -65,20 +67,41 @@ const Dashboard = () => {
   }, []);
 
   // 3. Create Document Handler
-  const handleCreateDocument = () => {
-    const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
-    navigate(`/document/${newId}`);
+  const handleCreateDocument = async () => {
+    try {
+      setLoading(true);
+      const res = await authFetch(`${API_BASE}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Untitled Document' })
+      });
+      if (res.ok) {
+        const newDoc = await res.json();
+        navigate(`/document/${newDoc._id}`);
+      } else {
+        setError('Failed to create new document');
+      }
+    } catch (err) {
+      console.error('Create document error:', err);
+      setError('Failed to connect and create new document');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // 4. Delete Document Handler
   const confirmDelete = async () => {
     if (!deleteDoc) return;
     try {
-      const res = await fetch(`${API_BASE}/documents/${deleteDoc.id}`, {
+      const res = await authFetch(`${API_BASE}/documents/${deleteDoc.id}`, {
         method: 'DELETE',
       });
       if (res.ok) {
         setDocuments(documents.filter((doc) => doc._id !== deleteDoc.id));
+        setDeleteDoc(null);
+      } else {
+        const errData = await res.json();
+        setError(errData.message || 'Failed to delete document');
         setDeleteDoc(null);
       }
     } catch (err) {
@@ -90,7 +113,7 @@ const Dashboard = () => {
   const confirmRename = async () => {
     if (!renameDoc || !renameTitle.trim()) return;
     try {
-      const res = await fetch(`${API_BASE}/documents/${renameDoc.id}`, {
+      const res = await authFetch(`${API_BASE}/documents/${renameDoc.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: renameTitle.trim() }),
@@ -184,9 +207,33 @@ const Dashboard = () => {
           <span className="text-xl font-bold tracking-tight text-slate-900">CollabEdit</span>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm border-2 border-purple-200 shadow-inner">
-            AK
-          </div>
+          <span className="text-slate-600 text-sm font-semibold hidden md:inline">
+            Hello, {user.name}
+          </span>
+          {user.avatar ? (
+            <img 
+              src={user.avatar} 
+              alt={user.name} 
+              className="w-10 h-10 rounded-full border-2 border-purple-200 object-cover shadow-sm"
+              title={user.name}
+            />
+          ) : (
+            <div 
+              className="w-10 h-10 rounded-full text-white flex items-center justify-center font-bold text-sm border-2 border-white shadow-inner"
+              style={{ backgroundColor: user.color }}
+              title={user.name}
+            >
+              {user.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+            </div>
+          )}
+          <button 
+            onClick={logout}
+            className="text-sm font-semibold text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 px-3 py-2 rounded-lg transition-colors cursor-pointer flex items-center space-x-1.5 shadow-sm"
+            title="Log Out"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Logout</span>
+          </button>
         </div>
       </nav>
 

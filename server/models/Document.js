@@ -14,6 +14,16 @@ const documentSchema = new Schema(
       type: String,
       default: 'Untitled Document',
     },
+    owner: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    collaborators: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   { timestamps: true }
 );
