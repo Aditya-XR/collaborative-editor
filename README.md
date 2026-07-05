@@ -1,47 +1,56 @@
 # CollabEdit - Collaborative Real-Time Text Editor
 
-CollabEdit is a modern, premium, collaborative rich-text editor workspace similar to Google Docs. It is built on the MERN stack (MongoDB, Express, React, Node.js) and powered by **Socket.io** for real-time text synchronization and **Quill** for rich text formatting.
+CollabEdit is a modern, premium, collaborative rich-text editor workspace similar to Google Docs. It is built on the MERN stack (MongoDB, Express, React, Node.js) and powered by **Yjs** for robust, conflict-free document synchronization and **Socket.io / Redis** for real-time presence.
 
 ## 🚀 Key Features
 
-*   **Real-Time Collaborative Editing**: Multiple users can connect to the same document room using a unique URL and collaborate simultaneously.
-*   **Granular Text Sync**: Utilizes Quill Deltas to sync precise text mutations immediately across clients via Socket.io without disrupting cursor positions.
+*   **Robust Collaborative Editing (Yjs)**: Multiple users can connect to the same document room using a unique URL and collaborate simultaneously. Built on Yjs (CRDT) for conflict-free, precise text mutations.
+*   **Secure User Authentication**: Complete JWT-based authentication system using HTTP-only cookies and bcrypt for secure user registration and login workflows.
+*   **Live Presence & Avatars**: Utilizes Socket.io (scaled via Redis Adapter) to display visual indicators and live cursor positions of active editors currently connected to the workspace.
 *   **Real-Time Title Synchronization**: Users can rename documents directly from the header, syncing the new title across all active peers instantly.
-*   **Automatic Cloud Saving**: Autosaves document contents and titles to MongoDB at a debounced 2-second interval.
-*   **Premium A4 Sheet UI**: A realistic, distraction-free document layout configured as an A4 sheet of paper with a sticky toolbar and headers.
-*   **Collaborator Avatars**: Displays visual indicators of active editors currently connected to the workspace.
+*   **Automatic Cloud Saving**: Autosaves document contents and titles to MongoDB Atlas seamlessly.
+*   **Premium A4 Sheet UI**: A realistic, distraction-free document layout configured as an A4 sheet of paper with a sticky toolbar and headers, powered by Tailwind CSS v4.
 *   **Quick Share Link**: Click to copy the shareable room link directly to the clipboard with visual confirmation.
 
 ---
 
 ## 🛠️ Technology Stack
 
-*   **Frontend**: React (Vite), Tailwind CSS v4, Lucide Icons, Quill Rich-Text Editor, Socket.io-client.
-*   **Backend**: Node.js, Express, Socket.io, Mongoose.
-*   **Database**: MongoDB Atlas.
+*   **Frontend**: React (Vite), Tailwind CSS v4, Lucide Icons, Quill Rich-Text Editor, Yjs & y-quill, Socket.io-client.
+*   **Backend**: Node.js, Express, Yjs (y-websocket), Socket.io, Mongoose, JWT, bcryptjs.
+*   **Database & Caching**: MongoDB Atlas, Redis (for Socket.io scaling & caching).
 
 ---
 
 ## ⚙️ Project Structure
 
-```
+```text
 ├── client/              # React frontend application
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Dashboard.jsx   # Landing page with document manager
-│   │   │   └── TextEditor.jsx  # Main collaborative workspace
-│   │   ├── App.jsx            # Routing configurations
-│   │   └── main.jsx           # App entry point
+│   │   │   ├── AuthPage.jsx       # Login & Registration workflows
+│   │   │   ├── AuthSuccess.jsx    # OAuth/Auth success handler
+│   │   │   ├── Dashboard.jsx      # Landing page with document manager
+│   │   │   ├── ProtectedRoute.jsx # Route guarding for authenticated users
+│   │   │   └── TextEditor.jsx     # Main collaborative workspace (Quill + Yjs)
+│   │   ├── context/
+│   │   │   └── AuthContext.jsx    # Global authentication state provider
+│   │   ├── App.jsx                # Routing configurations
+│   │   └── main.jsx               # App entry point
 │   └── package.json
 │
 ├── server/              # Express backend server
 │   ├── config/
 │   │   └── db.js              # Mongoose MongoDB connection
+│   ├── controllers/         # Request handling logic
+│   ├── middleware/
+│   │   └── authMiddleware.js  # JWT validation middleware
 │   ├── models/
-│   │   └── Document.js        # Mongoose Document Schema (data, title)
+│   │   ├── Document.js        # Mongoose Document Schema (data, title, owner)
+│   │   └── User.js            # Mongoose User Schema (auth details)
 │   ├── routes/
-│   │   └── api.js             # API health check router
-│   ├── index.js               # Express + Socket.io Server logic
+│   │   └── api.js             # API router for documents & auth endpoints
+│   ├── index.js               # Express + Socket.io + Yjs WebSocket Server
 │   └── package.json
 │
 └── package.json         # Root configuration for concurrent run scripts
@@ -52,7 +61,7 @@ CollabEdit is a modern, premium, collaborative rich-text editor workspace simila
 ## 🏃 Getting Started
 
 ### 1. Prerequisites
-Make sure you have **Node.js** (v16.0.0 or higher) and **npm** installed on your machine.
+Make sure you have **Node.js** (v16.0.0 or higher), **npm**, and a running instance of **Redis** installed on your machine.
 
 ### 2. Install Dependencies
 Run the installation command from the root directory to install all packages for the root, frontend, and backend folders:
@@ -61,12 +70,13 @@ npm run install-all
 ```
 
 ### 3. Environment Setup
-The backend requires a MongoDB connection string. Create or inspect the `.env` file in the `/server` directory:
+The backend requires MongoDB, Redis, and JWT configurations. Create or inspect the `.env` file in the `/server` directory:
 ```env
 MONGO_URI=your_mongodb_connection_string
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=your_jwt_secret_key
 PORT=5000
 ```
-*(A default pre-configured cluster URI is already provided in the repository for testing)*.
 
 ### 4. Run Development Server
 Start both the backend server and frontend development server concurrently:
@@ -74,8 +84,9 @@ Start both the backend server and frontend development server concurrently:
 npm run dev
 ```
 Once started:
-*   **Frontend Client**: Running at [http://localhost:5173/](http://localhost:5173/) (or next available port).
-*   **Backend Server**: Running at [http://localhost:5000/](http://localhost:5000/).
+*   **Frontend Client**: Running at [http://localhost:5173/](http://localhost:5173/)
+*   **Backend API**: Running at [http://localhost:5000/](http://localhost:5000/)
+*   **Yjs Websocket**: Running at `ws://localhost:5000/yjs`
 
 ---
 
