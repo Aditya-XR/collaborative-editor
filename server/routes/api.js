@@ -5,7 +5,8 @@ import {
   login,
   logout,
   refresh,
-  googleCallback
+  googleCallback,
+  getAuthConfig
 } from '../controllers/authController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -22,6 +23,7 @@ router.post('/auth/login', login);
 router.post('/auth/logout', logout);
 router.post('/auth/refresh', refresh);
 router.get('/auth/google/callback', googleCallback);
+router.get('/auth/config', getAuthConfig);
 
 // ==========================================
 // API Status (Public Health Check)

@@ -12,7 +12,25 @@ const AuthPage = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(searchParams.get('error') ? 'Google login failed. Please try again.' : '');
+  const getErrorMessage = (errCode) => {
+    if (!errCode) return '';
+    switch (errCode) {
+      case 'no_code_provided':
+        return 'Google OAuth authentication was cancelled or failed (no code provided).';
+      case 'google_token_exchange_failed':
+        return 'Failed to exchange Google OAuth code. Please verify that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the server\'s .env file are valid and match the ones used in the Google Cloud Console.';
+      case 'google_userinfo_failed':
+        return 'Failed to fetch user details from Google user info endpoint.';
+      case 'no_token_received':
+        return 'Authentication succeeded, but the client did not receive a session token.';
+      case 'internal_server_error':
+        return 'An internal server error occurred during Google Sign-In. Check server logs.';
+      default:
+        return `Google login failed (${errCode}). Please try again.`;
+    }
+  };
+
+  const [error, setError] = useState(getErrorMessage(searchParams.get('error')));
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -43,21 +61,40 @@ const AuthPage = () => {
     setLoading(false);
   };
 
-  const handleGoogleLogin = () => {
-    const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-    const options = {
-      redirect_uri: 'http://localhost:5000/api/auth/google/callback',
-      client_id: '891726285520-ppcrd7hdable19ua454di0u38jq75mlc.apps.googleusercontent.com',
-      access_type: 'offline',
-      response_type: 'code',
-      prompt: 'consent',
-      scope: [
-        'https://www.googleapis.com/auth/userinfo.profile',
-        'https://www.googleapis.com/auth/userinfo.email',
-      ].join(' '),
-    };
-    const q = new URLSearchParams(options);
-    window.location.href = `${rootUrl}?${q.toString()}`;
+  const handleGoogleLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/auth/config');
+      if (!res.ok) {
+        throw new Error('Failed to fetch auth config');
+      }
+      const data = await res.json();
+      const clientId = data.googleClientId;
+      if (!clientId || clientId === 'your_google_client_id') {
+        setError('Google login is not configured on the server. Please add a valid GOOGLE_CLIENT_ID to the server\'s .env file.');
+        setLoading(false);
+        return;
+      }
+      
+      const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+      const options = {
+        redirect_uri: 'http://localhost:5000/api/auth/google/callback',
+        client_id: clientId,
+        access_type: 'offline',
+        response_type: 'code',
+        prompt: 'consent',
+        scope: [
+          'https://www.googleapis.com/auth/userinfo.profile',
+          'https://www.googleapis.com/auth/userinfo.email',
+        ].join(' '),
+      };
+      const q = new URLSearchParams(options);
+      window.location.href = `${rootUrl}?${q.toString()}`;
+    } catch (err) {
+      setError('Could not connect to the authentication server to retrieve client ID.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -126,10 +163,9 @@ const AuthPage = () => {
                 <input
                   type="password"
                   required
-                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all bg-slate-50/50"
+                  className="w-full border border-slate-200 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all bg-white"
                 />
               </div>
             </div>

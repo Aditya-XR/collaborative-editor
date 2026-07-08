@@ -280,3 +280,9 @@ export const googleCallback = async (req, res) => {
     res.redirect(`${process.env.CLIENT_URL}/login?error=internal_server_error`);
   }
 };
+
+export const getAuthConfig = (req, res) => {
+  res.json({
+    googleClientId: process.env.GOOGLE_CLIENT_ID || ''
+  });
+};
