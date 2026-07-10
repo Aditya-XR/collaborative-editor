@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from 'react';
 
 const AuthContext = createContext(null);
 
@@ -8,31 +8,44 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
+  const refreshRequestRef = useRef(null);
 
   // Helper to refresh access token
   const refreshAccessToken = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setToken(data.accessToken);
-        setUser(data.user);
-        return data.accessToken;
-      } else {
-        // Clear token if refresh fails
+    if (refreshRequestRef.current) {
+      return refreshRequestRef.current;
+    }
+
+    const performRefresh = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setToken(data.accessToken);
+          setUser(data.user);
+          return data.accessToken;
+        } else {
+          // Clear token if refresh fails
+          setToken(null);
+          setUser(null);
+          return null;
+        }
+      } catch (err) {
+        console.error('Refresh token error:', err);
         setToken(null);
         setUser(null);
         return null;
+      } finally {
+        refreshRequestRef.current = null;
       }
-    } catch (err) {
-      console.error('Refresh token error:', err);
-      setToken(null);
-      setUser(null);
-      return null;
-    }
+    };
+
+    refreshRequestRef.current = performRefresh();
+    return refreshRequestRef.current;
   }, []);
 
   // Check auth state on initial mount
@@ -62,6 +75,7 @@ export const AuthProvider = ({ children }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) {
@@ -83,6 +97,7 @@ export const AuthProvider = ({ children }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) {
@@ -100,7 +115,10 @@ export const AuthProvider = ({ children }) => {
   // Logout handler
   const logout = async () => {
     try {
-      await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
+      await fetch(`${API_BASE}/auth/logout`, { 
+        method: 'POST',
+        credentials: 'include',
+      });
     } catch (err) {
       console.error('Logout request error:', err);
     } finally {

@@ -1,10 +1,17 @@
 import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import fs from 'fs';
 
 // C++ namespace std naming equivalents for clean scope lookup
 const { log, error } = console;
 const { stringify } = JSON;
+
+const writeLog = (msg, obj) => {
+  try {
+    fs.appendFileSync('oauth-debug.log', `${new Date().toISOString()} - ${msg}: ${JSON.stringify(obj)}\n`);
+  } catch (e) {}
+};
 
 const COLORS = [
   '#7c3aed', '#3b82f6', '#ec4899', '#f59e0b', 
@@ -223,6 +230,7 @@ export const googleCallback = async (req, res) => {
     const tokenData = await tokenResponse.json();
     if (!tokenResponse.ok || !tokenData.access_token) {
       error('Google Token Exchange Error:', tokenData);
+      writeLog('Google Token Exchange Error', tokenData);
       return res.redirect(`${process.env.CLIENT_URL}/login?error=google_token_exchange_failed`);
     }
 
@@ -236,6 +244,7 @@ export const googleCallback = async (req, res) => {
     const googleUser = await userResponse.json();
     if (!userResponse.ok || !googleUser.email) {
       error('Google Userinfo Error:', googleUser);
+      writeLog('Google Userinfo Error', googleUser);
       return res.redirect(`${process.env.CLIENT_URL}/login?error=google_userinfo_failed`);
     }
 
@@ -277,6 +286,7 @@ export const googleCallback = async (req, res) => {
     res.redirect(`${process.env.CLIENT_URL}/auth/success?token=${accessToken}`);
   } catch (err) {
     error('Google OAuth error:', err);
+    writeLog('Google OAuth error', { message: err.message, stack: err.stack });
     res.redirect(`${process.env.CLIENT_URL}/login?error=internal_server_error`);
   }
 };

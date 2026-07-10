@@ -7,8 +7,7 @@ const documentSchema = new Schema(
       required: true,
     },
     data: {
-      type: Object,
-      default: '',
+      type: Buffer,
     },
     title: {
       type: String,

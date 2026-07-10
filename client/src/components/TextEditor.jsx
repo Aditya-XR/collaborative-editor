@@ -9,6 +9,9 @@ import 'quill/dist/quill.snow.css';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { QuillBinding } from 'y-quill';
+import QuillCursors from 'quill-cursors';
+
+Quill.register('modules/cursors', QuillCursors);
 
 // Styling override component to customize Quill appearance to be premium
 const EditorStyleOverride = () => (
@@ -158,6 +161,7 @@ const TextEditor = () => {
     const q = new Quill(editor, {
       theme: 'snow',
       modules: {
+        cursors: true,
         toolbar: TOOLBAR_OPTIONS
       }
     });
@@ -189,7 +193,7 @@ const TextEditor = () => {
     );
 
     const ytext = doc.getText('quill');
-    const binding = new QuillBinding(ytext, quill);
+    const binding = new QuillBinding(ytext, quill, provider.awareness);
 
     // Update status indicators using the Yjs websocket provider connection state
     provider.on('status', ({ status }) => {
@@ -217,7 +221,7 @@ const TextEditor = () => {
       provider.destroy();
       doc.destroy();
     };
-  }, [quill, documentId]);
+  }, [quill, documentId, token]);
 
   // 4. Handle Socket.io Presence and Meta Synchronization
   useEffect(() => {
@@ -263,7 +267,7 @@ const TextEditor = () => {
       socket.off('presence-update');
       socket.off('receive-title-changes');
     };
-  }, [socket, documentId, userInfo]);
+  }, [socket, documentId, user]);
 
   // 5. Monitor Caret Selection and emit to Socket.io for Cursor Tracking
   useEffect(() => {

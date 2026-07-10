@@ -145,8 +145,13 @@ setPersistence({
       const doc = await Document.findById(docName);
       if (doc && doc.data) {
         // Apply persisted Yjs binary update representation if exists
-        if (doc.data instanceof Uint8Array || Buffer.isBuffer(doc.data)) {
-          applyUpdate(ydoc, new Uint8Array(doc.data));
+        let updateData = doc.data;
+        if (doc.data.buffer && Buffer.isBuffer(doc.data.buffer)) {
+          updateData = doc.data.buffer;
+        }
+        
+        if (updateData instanceof Uint8Array || Buffer.isBuffer(updateData)) {
+          applyUpdate(ydoc, new Uint8Array(updateData));
         }
       } else {
         // Create document in database if it doesn't exist
