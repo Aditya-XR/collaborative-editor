@@ -6,7 +6,7 @@ import {
   ArrowUpDown, X, Edit3, Link, Printer, Check, AlertTriangle, LogOut 
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();

@@ -136,7 +136,10 @@ const TextEditor = () => {
   useEffect(() => {
     if (!token) return;
     
-    const s = io('http://localhost:5000', {
+    const backendUrl = import.meta.env.VITE_API_URL 
+      ? import.meta.env.VITE_API_URL.replace('/api', '') 
+      : 'http://localhost:5000';
+    const s = io(backendUrl, {
       auth: { token }
     });
     setSocket(s);
@@ -185,8 +188,9 @@ const TextEditor = () => {
     if (quill == null || !documentId || !token) return;
 
     const doc = new Y.Doc();
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5000';
     const provider = new WebsocketProvider(
-      'ws://localhost:5000/yjs',
+      `${wsUrl}/yjs`,
       documentId,
       doc,
       { params: { token } }
@@ -235,7 +239,8 @@ const TextEditor = () => {
     // Load initial document metadata (title) via API
     const loadMetadata = async () => {
       try {
-        const res = await authFetch(`http://localhost:5000/api/documents/${documentId}`);
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const res = await authFetch(`${apiUrl}/documents/${documentId}`);
         if (res.ok) {
           const doc = await res.json();
           if (doc && doc.title) {

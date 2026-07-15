@@ -5,7 +5,7 @@ CollabEdit is a modern, premium, collaborative rich-text editor workspace simila
 ## 🚀 Key Features
 
 *   **Robust Collaborative Editing (Yjs)**: Multiple users can connect to the same document room using a unique URL and collaborate simultaneously. Built on Yjs (CRDT) for conflict-free, precise text mutations.
-*   **Secure User Authentication**: Complete JWT-based authentication system using HTTP-only cookies and bcrypt for secure user registration and login workflows.
+*   **Secure User Authentication & OAuth**: Complete JWT-based authentication system using HTTP-only cookies, Token Rotation, and bcrypt for secure registration/login, alongside integrated **Google OAuth 2.0 (Google Sign-In)**.
 *   **Live Presence & Avatars**: Utilizes Socket.io (scaled via Redis Adapter) to display visual indicators and live cursor positions of active editors currently connected to the workspace.
 *   **Real-Time Title Synchronization**: Users can rename documents directly from the header, syncing the new title across all active peers instantly.
 *   **Automatic Cloud Saving**: Autosaves document contents and titles to MongoDB Atlas seamlessly.
@@ -70,12 +70,17 @@ npm run install-all
 ```
 
 ### 3. Environment Setup
-The backend requires MongoDB, Redis, and JWT configurations. Create or inspect the `.env` file in the `/server` directory:
+The backend requires MongoDB, Redis, JWT, and Google OAuth configurations. Create or inspect the `.env` file in the `/server` directory:
 ```env
+PORT=5000
 MONGO_URI=your_mongodb_connection_string
 REDIS_URL=redis://localhost:6379
-JWT_SECRET=your_jwt_secret_key
-PORT=5000
+JWT_SECRET=your_jwt_access_secret_key
+JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+CLIENT_URL=http://localhost:5173
+NODE_ENV=development
 ```
 
 ### 4. Run Development Server

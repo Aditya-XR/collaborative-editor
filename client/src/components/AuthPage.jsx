@@ -65,7 +65,8 @@ const AuthPage = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/auth/config');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const res = await fetch(`${apiUrl}/auth/config`);
       if (!res.ok) {
         throw new Error('Failed to fetch auth config');
       }
@@ -79,7 +80,7 @@ const AuthPage = () => {
       
       const rootUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
       const options = {
-        redirect_uri: 'http://localhost:5000/api/auth/google/callback',
+        redirect_uri: `${apiUrl}/auth/google/callback`,
         client_id: clientId,
         access_type: 'offline',
         response_type: 'code',
