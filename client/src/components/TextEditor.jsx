@@ -189,9 +189,13 @@ const TextEditor = () => {
 
     const doc = new Y.Doc();
     
-    // Guarantee we use the exact same server domain as socket.io, which is known to work
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-    let wsUrl = apiUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://').replace(/\/+$/, '');
+    let wsUrl = import.meta.env.VITE_WS_URL;
+    if (!wsUrl || wsUrl === 'undefined' || wsUrl === 'null') {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      wsUrl = apiUrl.replace('/api', '');
+    }
+    // Clean up URL, enforce wss://, and remove trailing slashes
+    wsUrl = wsUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://').replace(/\/+$/, '');
 
     console.log('[Yjs] Attempting WebSocket connection to:', `${wsUrl}/yjs`);
     console.log('[Yjs] Document ID:', documentId);
