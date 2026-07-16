@@ -95,9 +95,35 @@ Once started:
 
 ---
 
-## 📦 Production Build
+## 📦 Production Deployment
 
-To compile a production build of the React frontend, run:
+The application is deployed across two platforms:
+
+*   **Frontend Client (Vercel)**: [https://collaborative-editor-sable.vercel.app](https://collaborative-editor-sable.vercel.app)
+*   **Backend Server (Railway)**: [https://collaborative-editor-production-ed0f.up.railway.app](https://collaborative-editor-production-ed0f.up.railway.app)
+
+### Production Environment Variables
+
+**Backend (Railway Variables)**:
+```env
+PORT=5000
+MONGO_URI=your_mongodb_connection_string
+REDIS_URL=redis://your_redis_production_url:port
+JWT_SECRET=your_jwt_access_secret_key
+JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+CLIENT_URL=https://collaborative-editor-sable.vercel.app
+NODE_ENV=production
+```
+
+**Frontend (Vercel Variables)**:
+```env
+VITE_API_URL=https://collaborative-editor-production-ed0f.up.railway.app/api
+VITE_WS_URL=wss://collaborative-editor-production-ed0f.up.railway.app
+```
+
+To compile a production build of the React frontend locally, run:
 ```bash
 npm run build --prefix client
 ```
