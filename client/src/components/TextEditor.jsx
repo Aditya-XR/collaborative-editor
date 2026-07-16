@@ -189,14 +189,13 @@ const TextEditor = () => {
 
     const doc = new Y.Doc();
     
-    // Automatically derive WS URL from API URL if VITE_WS_URL is missing
     let wsUrl = import.meta.env.VITE_WS_URL;
     if (!wsUrl) {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      wsUrl = apiUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://');
+      wsUrl = apiUrl.replace('/api', '');
     }
-    // Enforce wss:// if we accidentally have https:// (in case user explicitly set VITE_WS_URL to https://)
-    wsUrl = wsUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+    // Clean up URL and enforce wss:// 
+    wsUrl = wsUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://');
 
     let provider;
     try {

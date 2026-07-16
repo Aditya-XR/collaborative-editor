@@ -133,9 +133,9 @@ server.on('upgrade', (request, socket, head) => {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
     }
-  } else {
-    socket.destroy();
   }
+  // We do not destroy the socket in an else block here because 
+  // socket.io also uses the same upgrade event for its connections.
 });
 
 // Configure custom Yjs database persistence layer to MongoDB
