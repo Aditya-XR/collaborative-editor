@@ -188,13 +188,28 @@ const TextEditor = () => {
     if (quill == null || !documentId || !token) return;
 
     const doc = new Y.Doc();
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:5000';
-    const provider = new WebsocketProvider(
-      `${wsUrl}/yjs`,
-      documentId,
-      doc,
-      { params: { token } }
-    );
+    
+    // Automatically derive WS URL from API URL if VITE_WS_URL is missing
+    let wsUrl = import.meta.env.VITE_WS_URL;
+    if (!wsUrl) {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      wsUrl = apiUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://');
+    }
+    // Enforce wss:// if we accidentally have https:// (in case user explicitly set VITE_WS_URL to https://)
+    wsUrl = wsUrl.replace('http://', 'ws://').replace('https://', 'wss://');
+
+    let provider;
+    try {
+      provider = new WebsocketProvider(
+        `${wsUrl}/yjs`,
+        documentId,
+        doc,
+        { params: { token } }
+      );
+    } catch (err) {
+      console.error("Failed to initialize WebsocketProvider:", err);
+      return;
+    }
 
     const ytext = doc.getText('quill');
     const binding = new QuillBinding(ytext, quill, provider.awareness);
@@ -418,7 +433,8 @@ const TextEditor = () => {
             {/* Active Users Avatars */}
             <div className="hidden sm:flex items-center -space-x-2 mr-2">
               {activeUsers.map((u, idx) => {
-                const initials = u.username.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                const safeName = u.username || 'Anonymous';
+                const initials = safeName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                 const isMe = u.socketId === socket?.id;
                 return u.avatar ? (
                   <img
