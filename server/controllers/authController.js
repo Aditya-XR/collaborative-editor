@@ -212,6 +212,11 @@ export const googleCallback = async (req, res) => {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=no_code_provided`);
     }
 
+    // Determine the correct redirect URI dynamically based on the current host
+    const host = req.get('host');
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
+
     // Exchange code for Google tokens
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -222,7 +227,7 @@ export const googleCallback = async (req, res) => {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID,
         client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: 'http://localhost:5000/api/auth/google/callback',
+        redirect_uri: redirectUri,
         grant_type: 'authorization_code',
       }),
     });
