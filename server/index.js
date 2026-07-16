@@ -115,7 +115,7 @@ server.on('upgrade', (request, socket, head) => {
   const urlObj = new URL(request.url, `http://${request.headers.host}`);
   const { pathname } = urlObj;
   
-  if (pathname.startsWith('/yjs')) {
+  if (pathname.includes('/yjs')) {
     const token = urlObj.searchParams.get('token');
     if (!token) {
       log('Yjs upgrade rejected: No token provided');
