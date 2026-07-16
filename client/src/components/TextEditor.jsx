@@ -189,13 +189,12 @@ const TextEditor = () => {
 
     const doc = new Y.Doc();
     
-    let wsUrl = import.meta.env.VITE_WS_URL;
-    if (!wsUrl) {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      wsUrl = apiUrl.replace('/api', '');
-    }
-    // Clean up URL and enforce wss:// 
-    wsUrl = wsUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://');
+    // Guarantee we use the exact same server domain as socket.io, which is known to work
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+    let wsUrl = apiUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://').replace(/\/+$/, '');
+
+    console.log('[Yjs] Attempting WebSocket connection to:', `${wsUrl}/yjs`);
+    console.log('[Yjs] Document ID:', documentId);
 
     let provider;
     try {
@@ -205,8 +204,9 @@ const TextEditor = () => {
         doc,
         { params: { token } }
       );
+      console.log('[Yjs] WebsocketProvider initialized');
     } catch (err) {
-      console.error("Failed to initialize WebsocketProvider:", err);
+      console.error("[Yjs] Failed to initialize WebsocketProvider:", err);
       return;
     }
 
