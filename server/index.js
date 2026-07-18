@@ -42,8 +42,8 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Routes
-app.use('/api', apiRouter);
 app.use('/api', aiRouter);
+app.use('/api', apiRouter);
 
 // Fallback error handler
 app.use((err, req, res, next) => {
