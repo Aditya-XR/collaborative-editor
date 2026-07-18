@@ -39,6 +39,8 @@ router.get('/documents/search', authMiddleware, async (req, res) => {
 router.post('/ai/ask', authMiddleware, async (req, res) => {
   try {
     const { prompt, currentDocText } = req.body;
+    console.log(`[Server AI Ask] Prompt received: "${prompt}"`);
+    console.log(`[Server AI Ask] Current doc text length: ${currentDocText ? currentDocText.length : 0}`);
     
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
@@ -47,6 +49,7 @@ router.post('/ai/ask', authMiddleware, async (req, res) => {
     // Parse @filename tags (allows quoted names like @"file name" or unquoted like @filename)
     const matches = [...prompt.matchAll(/@"(.*?)"|@([a-zA-Z0-9_\-\.]+)/g)];
     const fileNames = matches.map(m => m[1] || m[2]).filter(Boolean);
+    console.log(`[Server AI Ask] Parsed referenced fileNames:`, fileNames);
     
     let extractedContext = '';
     
@@ -58,8 +61,10 @@ router.post('/ai/ask', authMiddleware, async (req, res) => {
           { collaborators: req.user._id }
         ]
       });
+      console.log(`[Server AI Ask] Found ${documents.length} matching documents in database.`);
       
       for (const doc of documents) {
+        console.log(`[Server AI Ask] Processing document: "${doc.title}" (ID: ${doc._id})`);
         if (doc.data) {
           try {
             const ydoc = new Y.Doc();
@@ -70,21 +75,31 @@ router.post('/ai/ask', authMiddleware, async (req, res) => {
             if (updateData instanceof Uint8Array || Buffer.isBuffer(updateData)) {
               Y.applyUpdate(ydoc, new Uint8Array(updateData));
               const text = ydoc.getText('quill').toString();
+              console.log(`[Server AI Ask] Extracted Yjs text for "${doc.title}" (length: ${text.length}): "${text.substring(0, 100)}..."`);
               extractedContext += `\n--- Document: ${doc.title} ---\n${text}\n`;
+            } else {
+              console.warn(`[Server AI Ask] doc.data for "${doc.title}" is not a valid Buffer/Uint8Array`);
             }
           } catch (err) {
-            console.error(`Error parsing document ${doc.title} data:`, err);
+            console.error(`[Server AI Ask] Error parsing document ${doc.title} data:`, err);
           }
+        } else {
+          console.log(`[Server AI Ask] Document "${doc.title}" has no data buffer (empty document).`);
         }
       }
     }
 
     // Initialize Gemini AI exactly as requested
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    const promptInput = `Context documents text data:\n${extractedContext}\n\nCurrent doc text:\n${currentDocText}\n\nUser request:${prompt}`;
+    console.log(`[Server AI Ask] Sending input to Gemini (length: ${promptInput.length})`);
+    
     const response = await ai.interactions.create({
         model: 'gemini-3.5-flash',
-        input: `Context documents text data:\n${extractedContext}\n\nCurrent doc text:\n${currentDocText}\n\nUser request:${prompt}`
+        input: promptInput
     });
+    console.log(`[Server AI Ask] Gemini response received (output text length: ${response.output_text ? response.output_text.length : 0})`);
 
     res.json({ output_text: response.output_text });
   } catch (error) {
