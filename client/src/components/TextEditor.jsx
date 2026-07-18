@@ -409,20 +409,29 @@ const TextEditor = () => {
 
     const mention = getActiveMention(value, cursor);
     if (mention) {
+      console.log(`[AI Autocomplete] Mentions pattern triggered. Query: "${mention.query}"`);
       setShowMentions(true);
       setMentionQuery(mention.query);
       setMentionIndex(mention.index);
       
       try {
         const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-        const res = await authFetch(`${apiUrl}/documents/search?q=${encodeURIComponent(mention.query)}`);
+        const searchUrl = `${apiUrl}/documents/search?q=${encodeURIComponent(mention.query)}`;
+        console.log(`[AI Autocomplete] Fetching suggestions from: ${searchUrl}`);
+        
+        const res = await authFetch(searchUrl);
+        console.log(`[AI Autocomplete] Response status received: ${res.status}`);
+        
         if (res.ok) {
           const docs = await res.json();
+          console.log(`[AI Autocomplete] Suggestions loaded successfully:`, docs);
           setSearchResults(docs);
           setSelectedSearchIdx(0);
+        } else {
+          console.error(`[AI Autocomplete] Server returned error status: ${res.status}`);
         }
       } catch (err) {
-        console.error('Mention search error:', err);
+        console.error('[AI Autocomplete] Mention search error:', err);
       }
     } else {
       setShowMentions(false);

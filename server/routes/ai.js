@@ -13,6 +13,7 @@ const router = express.Router();
 router.get('/documents/search', authMiddleware, async (req, res) => {
   try {
     const { q } = req.query;
+    console.log(`[Server AI Search] Endpoint hit. Query q: "${q || ''}" by user: ${req.user._id}`);
     
     const filter = {
       $or: [
@@ -26,9 +27,10 @@ router.get('/documents/search', authMiddleware, async (req, res) => {
     }
     
     const documents = await Document.find(filter);
+    console.log(`[Server AI Search] Found ${documents.length} matching documents.`);
     res.json(documents);
   } catch (error) {
-    console.error('Search error:', error);
+    console.error('[Server AI Search] Search error:', error);
     res.status(500).json({ error: 'Failed to search documents' });
   }
 });
