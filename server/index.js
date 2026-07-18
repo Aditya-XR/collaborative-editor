@@ -15,6 +15,7 @@ import { setupWSConnection, setPersistence } from 'y-websocket/bin/utils';
 
 import connectDB from './config/db.js';
 import apiRouter from './routes/api.js';
+import aiRouter from './routes/ai.js';
 import Document from './models/Document.js';
 import User from './models/User.js';
 
@@ -42,6 +43,7 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api', apiRouter);
+app.use('/api', aiRouter);
 
 // Fallback error handler
 app.use((err, req, res, next) => {

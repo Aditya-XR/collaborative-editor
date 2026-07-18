@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, FileText, Link, Check, Cloud, RefreshCw, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Link, Check, Cloud, RefreshCw, AlertCircle, Sparkles, Send, X, Loader2 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
@@ -127,6 +127,21 @@ const TextEditor = () => {
   const [title, setTitle] = useState('Loading...');
   const [saveStatus, setSaveStatus] = useState('connecting'); // 'connecting' | 'saving' | 'saved' | 'error'
   const [copied, setCopied] = useState(false);
+
+  // AI Panel States
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState('');
+  
+  // Autocomplete Mentions States
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(-1);
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedSearchIdx, setSelectedSearchIdx] = useState(0);
+
+  const inputRef = useRef(null);
 
   // Presence and Cursor Overlay States
   const [activeUsers, setActiveUsers] = useState([]);
@@ -371,6 +386,139 @@ const TextEditor = () => {
     });
   };
 
+  // 9. AI and Mentions Logic
+  const getActiveMention = (text, cursorIdx) => {
+    const beforeCursor = text.slice(0, cursorIdx);
+    const lastAtIdx = beforeCursor.lastIndexOf('@');
+    if (lastAtIdx === -1) return null;
+
+    const queryText = beforeCursor.slice(lastAtIdx + 1);
+    if (queryText.includes('"') || queryText.includes('\n')) return null;
+
+    if (lastAtIdx > 0 && !/\s/.test(beforeCursor[lastAtIdx - 1])) {
+      return null;
+    }
+
+    return { query: queryText, index: lastAtIdx };
+  };
+
+  const handlePromptChange = async (e) => {
+    const value = e.target.value;
+    setPromptText(value);
+    const cursor = e.target.selectionStart;
+
+    const mention = getActiveMention(value, cursor);
+    if (mention) {
+      setShowMentions(true);
+      setMentionQuery(mention.query);
+      setMentionIndex(mention.index);
+      
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const res = await authFetch(`${apiUrl}/documents/search?q=${encodeURIComponent(mention.query)}`);
+        if (res.ok) {
+          const docs = await res.json();
+          setSearchResults(docs);
+          setSelectedSearchIdx(0);
+        }
+      } catch (err) {
+        console.error('Mention search error:', err);
+      }
+    } else {
+      setShowMentions(false);
+      setSearchResults([]);
+    }
+  };
+
+  const selectMention = (doc) => {
+    const beforeMention = promptText.slice(0, mentionIndex);
+    const afterMention = promptText.slice(inputRef.current?.selectionStart || promptText.length);
+    const newText = `${beforeMention}@"${doc.title}" ${afterMention}`;
+    setPromptText(newText);
+    setShowMentions(false);
+    setSearchResults([]);
+
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        const newCursorPos = beforeMention.length + doc.title.length + 4; // @"title" + space
+        inputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 0);
+  };
+
+  const handlePromptKeyDown = (e) => {
+    if (showMentions && searchResults.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSearchIdx(prev => (prev + 1) % searchResults.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSearchIdx(prev => (prev - 1 + searchResults.length) % searchResults.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        selectMention(searchResults[selectedSearchIdx]);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowMentions(false);
+      }
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendPrompt();
+    }
+  };
+
+  const handleSendPrompt = async () => {
+    if (!promptText.trim() || isAiLoading) return;
+
+    setIsAiLoading(true);
+    setAiResponse('');
+
+    try {
+      const currentDocText = quill ? quill.getText() : '';
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const res = await authFetch(`${apiUrl}/ai/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prompt: promptText,
+          currentDocText
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAiResponse(data.output_text);
+      } else {
+        const errData = await res.json();
+        setAiResponse(`Error: ${errData.error || 'Failed to get response'}`);
+      }
+    } catch (err) {
+      console.error('AI ask error:', err);
+      setAiResponse(`Error: ${err.message}`);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const handleAcceptAiResponse = () => {
+    if (!quill || !aiResponse) return;
+    const range = quill.getSelection();
+    if (range) {
+      if (range.length > 0) {
+        quill.deleteText(range.index, range.length);
+      }
+      quill.insertText(range.index, aiResponse);
+      quill.setSelection(range.index + aiResponse.length);
+    } else {
+      const length = quill.getLength();
+      quill.insertText(length - 1, aiResponse);
+    }
+    setAiResponse('');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       <EditorStyleOverride />
@@ -490,6 +638,19 @@ const TextEditor = () => {
                 </>
               )}
             </button>
+
+            {/* Ask AI Button */}
+            <button
+              onClick={() => setIsAiOpen(!isAiOpen)}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-all cursor-pointer shadow-sm ${
+                isAiOpen
+                  ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                  : 'bg-white hover:bg-slate-50 text-purple-700 border border-purple-200'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Ask AI</span>
+            </button>
           </div>
         </div>
 
@@ -497,54 +658,166 @@ const TextEditor = () => {
         <div id="toolbar-parent" className="bg-slate-50 border-t border-slate-200 min-h-[42px] flex items-center justify-center" />
       </header>
 
-      {/* Document Canvas */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
-        <div className="w-full max-w-4xl bg-white min-h-[1056px] shadow-lg rounded-sm border border-slate-200 p-12 md:p-20 mb-16 relative">
-          {/* A4 Sheet Guide Line (Optional top margin/header indicator) */}
-          <div className="absolute top-8 left-0 right-0 px-12 md:px-20 flex justify-between text-[10px] text-slate-300 pointer-events-none select-none">
-            <span>Page 1</span>
-            <span>CollabEdit Workspace</span>
-          </div>
-          
-          {/* Main Quill editor mount point with custom caret overlay */}
-          <div className="relative mt-4">
-            <div ref={wrapperRef} />
+      {/* Document Canvas & Sidebar */}
+      <div className="flex-1 flex relative overflow-hidden">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center">
+          <div className="w-full max-w-4xl bg-white min-h-[1056px] shadow-lg rounded-sm border border-slate-200 p-12 md:p-20 mb-16 relative">
+            {/* A4 Sheet Guide Line (Optional top margin/header indicator) */}
+            <div className="absolute top-8 left-0 right-0 px-12 md:px-20 flex justify-between text-[10px] text-slate-300 pointer-events-none select-none">
+              <span>Page 1</span>
+              <span>CollabEdit Workspace</span>
+            </div>
             
-            {/* Custom Carets Overlay */}
-            {activeUsers.map(u => {
-              const coords = cursorCoords[u.socketId];
-              if (!coords) return null;
-              return (
-                <div
-                  key={u.socketId}
-                  className="absolute pointer-events-none z-10 transition-all duration-75"
-                  style={{
-                    left: `${coords.left}px`,
-                    top: `${coords.top}px`,
-                    height: `${coords.height}px`,
-                  }}
-                >
-                  {/* Caret Line */}
-                  <div 
-                    className="w-[2px] h-full" 
-                    style={{ backgroundColor: u.color }}
-                  />
-                  {/* Label */}
-                  <div 
-                    className="absolute bottom-full left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm animate-fade-in flex items-center space-x-1"
-                    style={{ backgroundColor: u.color }}
+            {/* Main Quill editor mount point with custom caret overlay */}
+            <div className="relative mt-4">
+              <div ref={wrapperRef} />
+              
+              {/* Custom Carets Overlay */}
+              {activeUsers.map(u => {
+                const coords = cursorCoords[u.socketId];
+                if (!coords) return null;
+                return (
+                  <div
+                    key={u.socketId}
+                    className="absolute pointer-events-none z-10 transition-all duration-75"
+                    style={{
+                      left: `${coords.left}px`,
+                      top: `${coords.top}px`,
+                      height: `${coords.height}px`,
+                    }}
                   >
-                    {u.avatar && (
-                      <img src={u.avatar} alt="" className="w-3.5 h-3.5 rounded-full object-cover shrink-0" />
-                    )}
-                    <span>{u.username}</span>
+                    {/* Caret Line */}
+                    <div 
+                      className="w-[2px] h-full" 
+                      style={{ backgroundColor: u.color }}
+                    />
+                    {/* Label */}
+                    <div 
+                      className="absolute bottom-full left-0 px-1.5 py-0.5 rounded text-[10px] font-bold text-white whitespace-nowrap shadow-sm animate-fade-in flex items-center space-x-1"
+                      style={{ backgroundColor: u.color }}
+                    >
+                      {u.avatar && (
+                        <img src={u.avatar} alt="" className="w-3.5 h-3.5 rounded-full object-cover shrink-0" />
+                      )}
+                      <span>{u.username}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </main>
+
+        {/* AI Sidebar */}
+        {isAiOpen && (
+          <aside className="w-80 md:w-96 border-l border-zinc-200/50 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md shadow-2xl flex flex-col z-30 relative shrink-0">
+            {/* Sidebar Header */}
+            <div className="p-4 border-b border-zinc-200/50 flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-purple-700 dark:text-purple-400 font-semibold">
+                <Sparkles className="w-5 h-5" />
+                <span>AI Assistant</span>
+              </div>
+              <button
+                onClick={() => setIsAiOpen(false)}
+                className="p-1 rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sidebar Content */}
+            <div className="flex-1 flex flex-col overflow-y-auto p-4 space-y-4">
+              {/* Prompt Input Container */}
+              <div className="relative">
+                <div className="relative flex items-center bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-full px-3 py-1.5 focus-within:ring-2 focus-within:ring-purple-600 focus-within:border-transparent transition-all">
+                  <Sparkles className="w-4 h-4 text-purple-500 shrink-0 mr-2" />
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={promptText}
+                    onChange={handlePromptChange}
+                    onKeyDown={handlePromptKeyDown}
+                    placeholder="Ask AI... (type @ to reference)"
+                    className="w-full bg-transparent text-sm focus:outline-none text-zinc-800 dark:text-zinc-200"
+                  />
+                  <button
+                    onClick={handleSendPrompt}
+                    disabled={isAiLoading || !promptText.trim()}
+                    className="p-1.5 rounded-full bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:hover:bg-purple-600 transition-colors shrink-0 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Autocomplete Dropdown */}
+                {showMentions && searchResults.length > 0 && (
+                  <div className="absolute left-0 right-0 mt-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-lg max-h-48 overflow-y-auto z-50">
+                    {searchResults.map((doc, idx) => (
+                      <button
+                        key={doc._id}
+                        onClick={() => selectMention(doc)}
+                        className={`w-full flex items-center space-x-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer ${
+                          idx === selectedSearchIdx
+                            ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                            : 'hover:bg-zinc-50 dark:hover:bg-zinc-700/50 text-zinc-700 dark:text-zinc-300'
+                        }`}
+                      >
+                        <FileText className="w-4 h-4 text-zinc-400 shrink-0" />
+                        <span className="truncate">{doc.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Status and Output Panels */}
+              {isAiLoading && (
+                <div className="flex flex-col items-center justify-center p-8 bg-zinc-50/50 dark:bg-zinc-800/30 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 animate-pulse space-y-3">
+                  <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+                  <span className="text-xs text-zinc-500 font-medium text-center">
+                    AI is reading your references...
+                  </span>
+                </div>
+              )}
+
+              {aiResponse && (
+                <div className="flex-1 flex flex-col min-h-0 bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-100/50 dark:bg-zinc-800 text-xs font-semibold text-zinc-500 flex items-center justify-between">
+                    <span>Response Preview</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
+                    {aiResponse}
+                  </div>
+                  <div className="p-3 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 flex items-center space-x-2 shrink-0">
+                    <button
+                      onClick={handleAcceptAiResponse}
+                      className="flex-1 px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer text-center"
+                    >
+                      Accept & Insert
+                    </button>
+                    <button
+                      onClick={() => setAiResponse('')}
+                      className="px-3 py-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      </main>
+              )}
+
+              {!isAiLoading && !aiResponse && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-zinc-400 space-y-2">
+                  <Sparkles className="w-10 h-10 text-purple-300 stroke-[1.5]" />
+                  <p className="text-sm font-medium text-zinc-500">AI Assistant</p>
+                  <p className="text-xs leading-normal max-w-[200px]">
+                    Ask AI to summarize files, edit text, or draft templates. Use <strong className="text-purple-600 font-semibold">@</strong> to query other docs.
+                  </p>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 };
