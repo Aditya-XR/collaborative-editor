@@ -136,7 +136,6 @@ const TextEditor = () => {
   
   // Autocomplete Mentions States
   const [showMentions, setShowMentions] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
   const [mentionIndex, setMentionIndex] = useState(-1);
   const [searchResults, setSearchResults] = useState([]);
   const [selectedSearchIdx, setSelectedSearchIdx] = useState(0);
@@ -211,6 +210,9 @@ const TextEditor = () => {
     }
     // Clean up URL, enforce wss://, and remove trailing slashes
     wsUrl = wsUrl.replace('/api', '').replace('http://', 'ws://').replace('https://', 'wss://').replace(/\/+$/, '');
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && wsUrl.startsWith('ws://')) {
+      wsUrl = wsUrl.replace('ws://', 'wss://');
+    }
 
     console.log('[Yjs] Attempting WebSocket connection to:', `${wsUrl}/yjs`);
     console.log('[Yjs] Document ID:', documentId);
@@ -411,7 +413,6 @@ const TextEditor = () => {
     if (mention) {
       console.log(`[AI Autocomplete] Mentions pattern triggered. Query: "${mention.query}"`);
       setShowMentions(true);
-      setMentionQuery(mention.query);
       setMentionIndex(mention.index);
       
       try {

@@ -1,11 +1,8 @@
 import express from 'express';
+import * as Y from 'yjs';
+import { GoogleGenAI } from '@google/genai';
 import Document from '../models/Document.js';
 import authMiddleware from '../middleware/authMiddleware.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const Y = require('yjs');
-const { GoogleGenAI } = require('@google/genai');
 
 const router = express.Router();
 
@@ -23,10 +20,11 @@ router.get('/documents/search', authMiddleware, async (req, res) => {
     };
     
     if (q && q.trim() !== '') {
-      filter.title = { $regex: q, $options: 'i' };
+      const safeQuery = q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.title = { $regex: safeQuery, $options: 'i' };
     }
     
-    const documents = await Document.find(filter);
+    const documents = await Document.find(filter).select('_id title owner collaborators updatedAt');
     console.log(`[Server AI Search] Found ${documents.length} matching documents.`);
     res.json(documents);
   } catch (error) {
@@ -44,6 +42,11 @@ router.post('/ai/ask', authMiddleware, async (req, res) => {
     
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('[Server AI Ask] Missing GEMINI_API_KEY in environment variables.');
+      return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server' });
     }
 
     // Parse @filename tags (allows quoted names like @"file name" or unquoted like @filename)
@@ -89,19 +92,21 @@ router.post('/ai/ask', authMiddleware, async (req, res) => {
       }
     }
 
-    // Initialize Gemini AI exactly as requested
+    // Initialize Gemini AI using GoogleGenAI SDK
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     
-    const promptInput = `Context documents text data:\n${extractedContext}\n\nCurrent doc text:\n${currentDocText}\n\nUser request:${prompt}`;
+    const promptInput = `Context documents text data:\n${extractedContext}\n\nCurrent doc text:\n${currentDocText || ''}\n\nUser request:${prompt}`;
     console.log(`[Server AI Ask] Sending input to Gemini (length: ${promptInput.length})`);
     
-    const response = await ai.interactions.create({
-        model: 'gemini-3.5-flash',
-        input: promptInput
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: promptInput
     });
-    console.log(`[Server AI Ask] Gemini response received (output text length: ${response.output_text ? response.output_text.length : 0})`);
 
-    res.json({ output_text: response.output_text });
+    const outputText = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log(`[Server AI Ask] Gemini response received (output text length: ${outputText.length})`);
+
+    res.json({ output_text: outputText });
   } catch (error) {
     console.error('AI ask error:', error);
     res.status(500).json({ error: error.message || 'Failed to process AI request' });
