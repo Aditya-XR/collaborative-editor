@@ -56,6 +56,10 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy app tests && 
 npm run lint && npm run typecheck && npm run format:check && npm test && npm run build
 ```
 
+If CI's `npm ci` fails with `Missing: … from lock file`, the lockfile was written by an npm that
+dropped an entry (npm 11.6 can omit transitive dependencies of optional packages). Rebuild it
+with the npm CI uses: `npx npm@10 install --package-lock-only`.
+
 ## Layout
 
 ```text
