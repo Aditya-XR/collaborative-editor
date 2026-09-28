@@ -53,8 +53,12 @@ jobs:
       - run: uv run alembic upgrade head
       - run: uv run pytest -q
       - name: Readiness against real Postgres and Redis
+        # Started from the venv, not `uv run`: a lingering uv process would hold the cache lock
+        # and make setup-uv's post-job cache prune time out. Stopped whatever the outcome.
         run: |
-          uv run uvicorn app.main:app --port 8000 &
+          .venv/bin/uvicorn app.main:app --port 8000 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/api/healthz && break; sleep 1; done
           curl -sf http://127.0.0.1:8000/api/readyz
 
