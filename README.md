@@ -1,183 +1,65 @@
-# CollabEdit - Real-Time Collaborative Editor with Gemini AI
+# CollabEdit
 
-CollabEdit is a modern, full-stack, collaborative rich-text document workspace built on the **MERN** stack (MongoDB, Express, React, Node.js). It combines **Yjs (CRDT)** for conflict-free real-time text synchronization, **Socket.io & Redis** for live user presence and cursor tracking, and **Google Gemini 2.5 Flash AI** for context-aware document assistant capabilities.
+Real-time collaborative documents, in the spirit of Google Docs, with offline editing and
+Git-style branches: fork a live document, work on it privately, and open a merge request.
 
----
+> **Status:** v2 rebuild in progress — phase 1 done (accounts, rate limiting, documents).
+> See [docs/PLAN.md](docs/PLAN.md).
+> The original MERN version is preserved under the `v1` tag.
 
-## 🚀 Key Features
+## Stack
 
-### 🤖 1. Context-Aware Gemini AI Assistant
-* **Embedded AI Panel**: Dedicated AI assistant drawer in the editor equipped with query input and output preview.
-* **Smart `@Document` Context Referencing**: Type `@` to trigger real-time document search autocomplete and reference other documents in your workspace (e.g. `@"Project Spec"`).
-* **Deep Yjs Binary Context Extraction**: The backend automatically parses binary Yjs state updates of referenced documents from MongoDB and feeds their text content directly to **Gemini 2.5 Flash** (`@google/genai`).
-* **Direct Content Insertion**: Preview AI output and insert generated content directly at your active cursor position or selection in the Quill editor with one click.
+| Layer | Technology |
+| --- | --- |
+| Web | React 19, TypeScript, Vite, TanStack Query, React Router, Tailwind CSS |
+| Editing | Tiptap (ProseMirror) + Yjs in the browser, pycrdt on the server _(phase 2)_ |
+| API | Python 3.13, FastAPI, SQLAlchemy 2 (async), Alembic |
+| Data | PostgreSQL, Redis |
+| Tooling | uv, ruff, mypy, pytest, oxlint, Prettier, Vitest, GitHub Actions, Docker Compose |
 
-### ✍️ 2. Real-Time Collaborative Editing (Yjs CRDT)
-* **Conflict-Free Mutations**: Powered by Yjs (CRDT algorithm), allowing multiple users to edit the same document simultaneously without edit collisions or lost updates.
-* **WebSocket Synchronization**: Fast, low-latency document sync via `y-websocket` and `y-quill`.
-* **Database Persistence**: Yjs document states are automatically serialized and persisted as binary updates in MongoDB.
+## Local development
 
-### 👥 3. Live Presence & Multi-User Cursor Tracking
-* **Live Avatars & Indicators**: Displays user avatars (Google profile picture or color-coded initials) for all active editors currently in the document room.
-* **Custom Remote Carets**: Shows live cursor positions and selection highlights of peer editors with custom name tags.
-* **Horizontal Scaling with Redis**: Scaled using `@socket.io/redis-adapter` and Upstash Redis hash maps, with stale presence auto-cleanup (2-minute TTL).
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/),
+Python 3.13 with [uv](https://docs.astral.sh/uv/), and Node.js 22+.
 
-### 🔒 4. Authentication & Security
-* **JWT Access & Refresh Tokens**: Secure authentication flow with short-lived JWT access tokens and HTTP-only refresh cookies featuring Token Rotation.
-* **Google OAuth 2.0 Integration**: 1-click Google Sign-In and profile synchronization.
-* **Protected WebSockets**: Token verification on Socket.io connection handshakes and `/yjs` HTTP Upgrade requests before upgrading WebSocket connections.
-
-### 📊 5. Document Management & Workspace
-* **Dashboard Workspace**: Comprehensive document manager featuring live title search and multi-criteria sorting (Last Edited, Title A-Z, Title Z-A).
-* **Owner & Collaborator Access Control**: Automatically assigns document ownership and adds users as collaborators upon accessing shared room links. Deletion is restricted to document owners.
-* **Real-Time Title Sync**: Instant header title updates across all connected peers.
-* **1-Click Room Link Sharing**: Copy shareable room link directly to clipboard.
-* **A4 Sheet UI**: Premium distraction-free document layout configured as an A4 sheet with a sticky header and pinned Quill toolbar powered by Tailwind CSS v4.
-
----
-
-## 🛠️ Technology Stack
-
-| Domain | Technologies Used |
-| :--- | :--- |
-| **Frontend** | React 19, Vite, Tailwind CSS v4, Lucide Icons, Quill 2, Quill Cursors, Yjs, y-websocket, y-quill, Socket.io Client |
-| **Backend** | Node.js, Express, Yjs, y-websocket, Socket.io, Mongoose, JWT, bcryptjs, `@google/genai` (Gemini 2.5 Flash) |
-| **Database & Caching** | MongoDB Atlas, Upstash Redis (Socket.io Redis Adapter & presence store) |
-| **Tooling & Linter** | Concurrently, Nodemon, Oxlint |
-
----
-
-## ⚙️ Project Structure
-
-```text
-collaborative-editor/
-├── client/                      # React Frontend Application (Vite)
-│   ├── public/                  # Static assets
-│   ├── src/
-│   │   ├── assets/              # App images and logos
-│   │   ├── components/
-│   │   │   ├── AuthPage.jsx       # Login & Registration workflows with Google OAuth
-│   │   │   ├── AuthSuccess.jsx    # OAuth redirect & token handler
-│   │   │   ├── Dashboard.jsx      # Document workspace, search, sorting & manager
-│   │   │   ├── ProtectedRoute.jsx # Route guarding for authenticated users
-│   │   │   └── TextEditor.jsx     # Main workspace (Quill + Yjs + Socket.io + Gemini AI)
-│   │   ├── context/
-│   │   │   └── AuthContext.jsx    # Global Auth state & token refresh manager
-│   │   ├── App.jsx                # Application routes
-│   │   ├── App.css                # Global style overrides
-│   │   ├── index.css              # Tailwind CSS imports & theme setup
-│   │   └── main.jsx               # React entry point
-│   ├── .oxlintrc.json           # Oxlint code quality configuration
-│   ├── package.json             # Frontend dependencies & scripts
-│   ├── vercel.json              # Vercel deployment configuration
-│   └── vite.config.js           # Vite build configuration
-│
-├── server/                      # Express Backend Server & WebSockets
-│   ├── config/
-│   │   └── db.js              # MongoDB Atlas connection setup
-│   ├── controllers/
-│   │   └── authController.js  # Auth logic (Register, Login, Google OAuth, Refresh)
-│   ├── middleware/
-│   │   └── authMiddleware.js  # JWT validation middleware
-│   ├── models/
-│   │   ├── Document.js        # Mongoose Document Schema (title, owner, collaborators, binary data)
-│   │   └── User.js            # Mongoose User Schema (auth credentials, avatar, color)
-│   ├── routes/
-│   │   ├── ai.js              # Gemini AI (/api/ai/ask) & Document Search endpoints
-│   │   └── api.js             # Auth & Document CRUD routes
-│   ├── index.js               # Express server, Socket.io (Redis Adapter), Yjs WebSockets & persistence
-│   ├── test-redis.js          # Redis connectivity test utility
-│   ├── .env.example           # Environment template
-│   └── package.json             # Backend dependencies & scripts
-│
-├── package.json                 # Root script runner (concurrently)
-└── README.md                    # Project documentation
-```
-
----
-
-## 🏃 Getting Started
-
-### 1. Prerequisites
-* **Node.js**: v18.0.0 or higher
-* **npm**: v9.0.0 or higher
-* **MongoDB**: MongoDB Atlas URI or local MongoDB instance
-* **Redis**: Redis URL (e.g., Upstash Redis or local Redis server)
-* **Google Gemini API Key**: Obtainable from [Google AI Studio](https://aistudio.google.com/)
-
-### 2. Installation
-Clone the repository and install all dependencies for the root, frontend, and backend packages:
 ```bash
-git clone https://github.com/Aditya-XR/collaborative-editor.git
-cd collaborative-editor
-npm run install-all
-```
+# 1. Postgres and Redis
+docker compose -f infra/docker-compose.yml up -d
 
-### 3. Environment Configuration
-Create a `.env` file inside the `server/` directory:
+# 2. API on http://localhost:8000 (docs at /api/docs)
+cd apps/api
+cp .env.example .env
+uv sync
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --no-access-log
 
-```env
-PORT=5000
-MONGO_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/collabedit
-REDIS_URL=redis://default:<password>@<host>:<port>
-JWT_SECRET=your_jwt_access_secret_key
-JWT_REFRESH_SECRET=your_jwt_refresh_secret_key
-GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-GEMINI_API_KEY=your_gemini_api_key
-CLIENT_URL=http://localhost:5173
-NODE_ENV=development
-```
-
-*(Optional)* Create a `.env` file in the `client/` directory for local environment variables:
-```env
-VITE_API_URL=http://localhost:5000/api
-VITE_WS_URL=ws://localhost:5000
-```
-
-### 4. Running Locally
-Start both backend and frontend development servers concurrently:
-```bash
+# 3. Web app on http://localhost:5173 (proxies /api to the API)
+cd apps/web
+npm install
 npm run dev
 ```
 
-* **Frontend App**: Accessible at `http://localhost:5173/`
-* **Backend REST API**: Running at `http://localhost:5000/api`
-* **Yjs WebSocket Endpoint**: `ws://localhost:5000/yjs`
+Open http://localhost:5173, create an account, and create documents. The dashboard footer
+shows the API's readiness: green when Postgres and Redis both answer.
 
----
+## Checks
 
-## 📦 Production Deployment
+Run the same checks CI runs before pushing. API tests need the Docker services from step 1;
+they build a separate `collabedit_test` database from the migrations and use Redis database 15.
 
-The project is configured for cloud deployment across **Vercel** and **Railway**:
+```bash
+# apps/api
+uv run ruff check . && uv run ruff format --check . && uv run mypy app tests && uv run pytest
 
-* **Frontend Client (Vercel)**: [https://collaborative-editor-sable.vercel.app](https://collaborative-editor-sable.vercel.app)
-* **Backend Server (Railway)**: [https://collaborative-editor-production-ed0f.up.railway.app](https://collaborative-editor-production-ed0f.up.railway.app)
-
-### Production Environment Variables
-
-#### Backend (Railway Environment):
-```env
-PORT=5000
-MONGO_URI=your_mongodb_atlas_connection_string
-REDIS_URL=redis://your_redis_production_url:port
-JWT_SECRET=your_production_jwt_access_secret
-JWT_REFRESH_SECRET=your_production_jwt_refresh_secret
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-GEMINI_API_KEY=your_gemini_api_key
-CLIENT_URL=https://collaborative-editor-sable.vercel.app
-NODE_ENV=production
+# apps/web
+npm run lint && npm run typecheck && npm run format:check && npm test && npm run build
 ```
 
-#### Frontend (Vercel Environment):
-```env
-VITE_API_URL=https://collaborative-editor-production-ed0f.up.railway.app/api
-VITE_WS_URL=wss://collaborative-editor-production-ed0f.up.railway.app
+## Layout
+
+```text
+apps/api/     FastAPI service (app/core, app/<domain>, alembic, tests)
+apps/web/     React app (src/app, src/lib, src/features)
+infra/        docker-compose.yml for local Postgres and Redis
+docs/         PLAN.md and architecture decision records (docs/adr)
 ```
-
----
-
-## 📜 License
-
-This project is open-source and available under the [MIT License](LICENSE).

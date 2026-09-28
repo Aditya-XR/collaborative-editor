@@ -1,0 +1,4 @@
+# Normalise line endings so Windows checkouts build the same Linux images as CI
+* text=auto eol=lf
+*.png binary
+*.ico binary

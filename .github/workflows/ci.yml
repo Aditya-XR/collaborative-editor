@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API (lint, types, tests, readiness)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: collabedit
+          POSTGRES_PASSWORD: collabedit
+          POSTGRES_DB: collabedit
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U collabedit -d collabedit"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      ENV: test
+      DATABASE_URL: postgresql+asyncpg://collabedit:collabedit@localhost:5432/collabedit
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy app tests
+      - run: uv run alembic upgrade head
+      - run: uv run pytest -q
+      - name: Readiness against real Postgres and Redis
+        run: |
+          uv run uvicorn app.main:app --port 8000 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/api/healthz && break; sleep 1; done
+          curl -sf http://127.0.0.1:8000/api/readyz
+
+  api-image:
+    name: API Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag collabedit-api:ci apps/api
+
+  web:
+    name: Web (lint, types, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build

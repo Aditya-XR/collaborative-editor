@@ -1,0 +1,50 @@
+# Local development stack.
+#   docker compose -f infra/docker-compose.yml up -d                  -> Postgres + Redis only
+#   docker compose -f infra/docker-compose.yml --profile full up -d   -> also the API container
+name: collabedit
+
+services:
+  postgres:
+    image: postgres:17-alpine # matches the major version Neon runs
+    environment:
+      POSTGRES_USER: collabedit
+      POSTGRES_PASSWORD: collabedit
+      POSTGRES_DB: collabedit
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U collabedit -d collabedit']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api:
+    profiles: ['full']
+    build: ../apps/api
+    environment:
+      ENV: development
+      DATABASE_URL: postgresql+asyncpg://collabedit:collabedit@postgres:5432/collabedit
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - '8000:8000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
