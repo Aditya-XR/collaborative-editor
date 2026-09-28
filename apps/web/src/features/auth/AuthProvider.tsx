@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { setTokenSource } from '../../lib/api'
+import { wipeOfflineDatabases } from '../../lib/offline'
 import { authApi } from './api'
 import { AuthContext, type AuthValue } from './context'
 import { session as defaultSession, type SessionManager } from './session'
@@ -38,18 +39,22 @@ export function AuthProvider({
       status,
       signIn: async (credentials) => manager.start(await authApi.login(credentials)),
       signUp: async (registration) => manager.start(await authApi.register(registration)),
+      // Signing out deletes every offline copy: a shared computer must keep nothing. (A session
+      // that merely expires keeps them, so offline edits sync after the next sign-in.)
       signOut: async () => {
         try {
           await authApi.logout()
         } finally {
           manager.signOut()
           queryClient.clear()
+          await wipeOfflineDatabases()
         }
       },
       signOutEverywhere: async () => {
         await authApi.logoutAll()
         manager.signOut()
         queryClient.clear()
+        await wipeOfflineDatabases()
       },
     }),
     [manager, queryClient, status, user],

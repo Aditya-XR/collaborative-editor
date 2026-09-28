@@ -36,6 +36,20 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
+    # Live editing
+    collab_ticket_ttl_seconds: int = 30
+    # How long an empty room stays in memory, so a quick reconnect skips reloading from Postgres.
+    collab_room_grace_seconds: float = 30.0
+    # The saver writes buffered edits after this delay, or sooner once this many are waiting.
+    collab_flush_interval_seconds: float = 0.5
+    collab_flush_max_updates: int = 50
+    collab_max_connections_per_user: int = 10
+    # Per-connection message budget: a burst of 200, refilling at 60 per second.
+    collab_message_burst: int = 200
+    collab_messages_per_second: float = 60.0
+    # Outgoing messages queued per connection before it is dropped as too slow.
+    collab_send_queue_size: int = 512
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"

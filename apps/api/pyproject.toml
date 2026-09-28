@@ -15,6 +15,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.10",
     "email-validator>=2.2",
+    "pycrdt>=0.12",
 ]
 
 [dependency-groups]
@@ -24,6 +25,8 @@ dev = [
     "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
+    "httpx-ws>=0.7",
+    "hypothesis>=6.100",
 ]
 
 [tool.uv]
@@ -38,7 +41,11 @@ select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF"]
 ignore = ["S101"] # assert is fine in tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106", "S107"] # fixture passwords and secrets
+"tests/**" = [
+    "S105", "S106", "S107",  # fixture passwords and secrets
+    "S311",  # seeded random for reproducible concurrency tests
+    "ASYNC109",  # test helpers take explicit timeouts
+]
 
 [tool.ruff.lint.isort]
 # The local alembic/ migrations folder would otherwise make isort treat the package as ours.

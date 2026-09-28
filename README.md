@@ -3,7 +3,7 @@
 Real-time collaborative documents, in the spirit of Google Docs, with offline editing and
 Git-style branches: fork a live document, work on it privately, and open a merge request.
 
-> **Status:** v2 rebuild in progress — phase 1 done (accounts, rate limiting, documents).
+> **Status:** v2 rebuild in progress — phase 2 done (live co-editing, cursors, offline editing).
 > See [docs/PLAN.md](docs/PLAN.md).
 > The original MERN version is preserved under the `v1` tag.
 
@@ -12,7 +12,7 @@ Git-style branches: fork a live document, work on it privately, and open a merge
 | Layer | Technology |
 | --- | --- |
 | Web | React 19, TypeScript, Vite, TanStack Query, React Router, Tailwind CSS |
-| Editing | Tiptap (ProseMirror) + Yjs in the browser, pycrdt on the server _(phase 2)_ |
+| Editing | Tiptap (ProseMirror) + Yjs in the browser, pycrdt sync server over WebSockets |
 | API | Python 3.13, FastAPI, SQLAlchemy 2 (async), Alembic |
 | Data | PostgreSQL, Redis |
 | Tooling | uv, ruff, mypy, pytest, oxlint, Prettier, Vitest, GitHub Actions, Docker Compose |
@@ -39,7 +39,8 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, create an account, and create documents. The dashboard footer
+Open http://localhost:5173, create an account, and create a document. Open it in a second
+window to watch edits and cursors sync live; stop the API to try offline editing. The dashboard footer
 shows the API's readiness: green when Postgres and Redis both answer.
 
 ## Checks

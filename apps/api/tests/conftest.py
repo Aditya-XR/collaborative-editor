@@ -81,6 +81,10 @@ def settings(database_url: str) -> Settings:
         jwt_secret="test-jwt-secret-that-is-long-enough-0123456789",
         # Tests about limits turn this on; elsewhere it would make test order matter.
         rate_limit_enabled=False,
+        # Evict rooms as soon as the last client leaves and save almost immediately, so tests
+        # can observe persistence without waiting.
+        collab_room_grace_seconds=0,
+        collab_flush_interval_seconds=0.01,
     )
 
 

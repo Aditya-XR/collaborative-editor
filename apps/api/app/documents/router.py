@@ -2,9 +2,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app.auth.deps import CurrentUser, limit_api_per_user
+from app.collab.room import CloseCode
 from app.core.deps import DbSession
 from app.documents import service
 from app.documents.models import DocumentRole
@@ -65,9 +66,14 @@ async def rename_document(
 
 
 @router.delete("/{doc_id}", status_code=204)
-async def trash_document(doc_id: uuid.UUID, user: CurrentUser, session: DbSession) -> None:
+async def trash_document(
+    doc_id: uuid.UUID, request: Request, user: CurrentUser, session: DbSession
+) -> None:
     view = await service.get_for(session, user, doc_id, min_role=DocumentRole.OWNER)
     await service.trash(session, view, datetime.now(UTC))
+    await request.app.state.rooms.close_document(
+        doc_id, CloseCode.NOT_FOUND, "Document moved to trash"
+    )
 
 
 @router.post("/{doc_id}/restore")

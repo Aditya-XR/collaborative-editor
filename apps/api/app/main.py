@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import me_router
 from app.auth.router import router as auth_router
+from app.collab.manager import RoomManager
+from app.collab.router import router as collab_router
+from app.collab.store import UpdateStore
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker, ping_database
 from app.core.errors import register_error_handlers
@@ -27,6 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.db_engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
+    app.state.rooms = RoomManager(UpdateStore(app.state.sessionmaker), settings)
     app.state.redis = redis
     app.state.rate_limiter = RateLimiter(redis, enabled=settings.rate_limit_enabled)
     app.state.readiness_checks = {
@@ -37,6 +41,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Save open documents before the database connection goes away.
+        await app.state.rooms.shutdown()
         await redis.aclose()
         await engine.dispose()
         log.info("shutdown")
@@ -72,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(me_router, prefix="/api")
     app.include_router(documents_router, prefix="/api")
+    app.include_router(collab_router, prefix="/api")
     return app
 
 

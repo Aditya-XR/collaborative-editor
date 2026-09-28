@@ -1,9 +1,30 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { CollabProvider } from '../editor/CollabProvider'
 import { renderApp } from '../../test/renderApp'
 import { server } from '../../test/server'
 import { BOB, makeDocument, readinessOk, signedIn } from '../../test/fixtures'
+
+// Opening a document starts a live connection; these tests only care about navigation.
+vi.mock('../editor/useCollab', () => ({
+  useCollab: (documentId: string) => ({
+    provider: new CollabProvider(documentId, {
+      getTicket: async () => ({ ticket: 't', role: 'owner' }),
+      socketUrl: () => 'ws://unused',
+      openLocalStore: () => null,
+    }),
+    state: {
+      status: 'online',
+      synced: true,
+      localReady: true,
+      unsynced: 0,
+      role: 'owner',
+      stopReason: null,
+      peers: [],
+    },
+  }),
+}))
 
 const mine = makeDocument({ id: 'doc-mine', title: 'My plan' })
 const shared = makeDocument({

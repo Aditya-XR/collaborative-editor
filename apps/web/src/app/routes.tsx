@@ -3,7 +3,6 @@ import { RedirectIfSignedIn, RequireAuth } from '../features/auth/guards'
 import { LoginPage } from '../features/auth/LoginPage'
 import { RegisterPage } from '../features/auth/RegisterPage'
 import { DashboardPage } from '../features/documents/DashboardPage'
-import { DocumentPage } from '../features/documents/DocumentPage'
 import { NotFoundPage } from './NotFoundPage'
 
 export const routes: RouteObject[] = [
@@ -18,7 +17,14 @@ export const routes: RouteObject[] = [
     element: <RequireAuth />,
     children: [
       { path: '/', element: <DashboardPage /> },
-      { path: '/d/:documentId', element: <DocumentPage /> },
+      {
+        path: '/d/:documentId',
+        // The editor (Tiptap, ProseMirror, Yjs) is most of the JavaScript; sign-in and the
+        // dashboard load without it.
+        lazy: async () => ({
+          Component: (await import('../features/editor/EditorPage')).EditorPage,
+        }),
+      },
     ],
   },
   { path: '*', element: <NotFoundPage /> },
