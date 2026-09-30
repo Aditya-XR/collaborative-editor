@@ -22,5 +22,8 @@ RUN useradd --create-home --uid 10001 appuser
 USER appuser
 
 EXPOSE 8000
+# Migrations run before the server starts: Render's free plan has no pre-deploy hook, and with a
+# single instance nothing else can be migrating at the same time. `exec` hands PID 1 to uvicorn
+# so it receives SIGTERM and saves open documents on shutdown.
 # Proxy headers are trusted only from FORWARDED_ALLOW_IPS (uvicorn defaults to 127.0.0.1).
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --no-access-log"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --no-access-log"]

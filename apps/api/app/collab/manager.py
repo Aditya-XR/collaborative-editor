@@ -92,6 +92,18 @@ class RoomManager:
         if room is not None:
             await room.kick_all(code, reason)
 
+    async def disconnect_user(
+        self, document_id: uuid.UUID, user_id: uuid.UUID, code: CloseCode, reason: str
+    ) -> None:
+        """Closes one user's connections to a document after their access changed.
+
+        Only this instance's rooms are reached; with several instances (phase 5) the same request
+        goes out over Redis pub/sub.
+        """
+        room = self.rooms.get(document_id)
+        if room is not None:
+            await room.kick_user(user_id, code, reason)
+
     async def shutdown(self) -> None:
         """Called on server shutdown: tell clients to reconnect elsewhere, then save everything."""
         for task in self._evictions.values():

@@ -17,6 +17,7 @@ export const CloseCode = {
   forbidden: 4403,
   notFound: 4404,
   tooSlow: 4408,
+  roleChanged: 4409,
   rateLimited: 4429,
 } as const
 
@@ -208,6 +209,10 @@ export class CollabProvider {
         return this.halt('not_found')
       case CloseCode.badMessage:
         return this.halt('rejected')
+      case CloseCode.roleChanged:
+        // Someone changed our access; a fresh ticket carries the new role.
+        this.attempts = 0
+        return this.scheduleReconnect(0)
       case CloseCode.invalidTicket:
         // Expired between issue and use; a fresh ticket usually fixes it, but not forever.
         return this.attempts < 3 ? this.scheduleReconnect(0) : this.scheduleReconnect()

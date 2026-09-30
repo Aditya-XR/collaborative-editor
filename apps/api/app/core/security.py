@@ -80,6 +80,14 @@ def new_refresh_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def hash_refresh_token(token: str) -> str:
-    # 256 random bits cannot be brute-forced, so a fast hash is enough here (unlike passwords).
+def hash_token(token: str) -> str:
+    """Digest for random, server-issued tokens (refresh tokens, share links).
+
+    They carry at least 192 random bits and cannot be brute-forced, so a fast hash is enough;
+    passwords, which people choose, get Argon2 instead.
+    """
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def hash_refresh_token(token: str) -> str:
+    return hash_token(token)

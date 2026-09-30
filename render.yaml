@@ -1,0 +1,31 @@
+# Render Blueprint for the API: Dashboard → New → Blueprint → pick this repository.
+# Secrets marked `sync: false` are asked for once, in the Render dashboard; they never live here.
+services:
+  - type: web
+    name: collabedit-api # becomes https://collabedit-api.onrender.com (or with a suffix if taken)
+    runtime: docker
+    plan: free
+    region: singapore # keep Postgres (Neon) and Redis in the same region
+    branch: main
+    dockerContext: ./apps/api
+    dockerfilePath: ./apps/api/Dockerfile
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    envVars:
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: COOKIE_SECURE
+        value: 'true'
+      # Render's proxy is the only way in, so its forwarded client address can be trusted.
+      - key: FORWARDED_ALLOW_IPS
+        value: '*'
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL # Neon connection string (the direct one, not "-pooler")
+        sync: false
+      - key: REDIS_URL # Redis Cloud: redis://default:PASSWORD@HOST:PORT
+        sync: false
+      - key: FRONTEND_URL # the Vercel URL, e.g. https://collabedit.vercel.app
+        sync: false

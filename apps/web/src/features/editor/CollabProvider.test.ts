@@ -210,6 +210,25 @@ describe('CollabProvider', () => {
     provider.stop()
   })
 
+  it('reconnects at once with a new ticket when its role changes', async () => {
+    const getTicket = vi
+      .fn()
+      .mockResolvedValueOnce({ ticket: 'as-editor', role: 'editor' })
+      .mockResolvedValueOnce({ ticket: 'as-viewer', role: 'viewer' })
+    const { provider } = setup({ getTicket })
+    provider.start()
+    await flush()
+    lastSocket().open()
+
+    lastSocket().serverClose(CloseCode.roleChanged)
+    await flush()
+
+    expect(getTicket).toHaveBeenCalledTimes(2)
+    expect(lastSocket().url).toContain('as-viewer')
+    expect(provider.getSnapshot().role).toBe('viewer')
+    provider.stop()
+  })
+
   it.each([
     [CloseCode.forbidden, 'forbidden'],
     [CloseCode.notFound, 'not_found'],

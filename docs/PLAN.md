@@ -46,6 +46,17 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
   - Found upstream: pycrdt/yrs 0.27 drops some out-of-order updates (Yjs does not); see ADR 0012
 - [ ] **3 · Storage, versions, search** (week 5)
 - [ ] **4 · Sharing and roles** (week 6) → **Gate 1: MVP live on the web**
+  - [x] Members: list, invite by email with a role, change role, remove, leave, transfer ownership
+  - [x] Share links: role, expiry, turn off; token shown once and stored hashed; accept never
+        lowers access; token sent in the body so it stays out of logs
+  - [x] Access changes close open editors instantly (4403 removed, 4409 reconnect with new role)
+  - [x] Web: Share dialog, `/share/:token` page (sign-in first when needed), provider handles 4409
+  - [x] Deploy prep: `render.yaml`, `vercel.json`, `docs/DEPLOY.md`; Neon URLs adapted for
+        asyncpg; migrations at container start; production refuses a dev secret or insecure
+        cookies; config errors never echo secrets
+  - [x] 121 API tests, 64 web tests; production image rehearsed locally against a fresh database
+  - [ ] Accounts on Neon, Redis Cloud, Render and Vercel, then deploy (see docs/DEPLOY.md)
+  - [ ] Merge `v2` into `main` (the deploy branch) and run the smoke test
 - [ ] **5 · Multi-instance Redis** (week 7)
 - [ ] **6 · Comments** (week 8)
 - [ ] **7 · Branches and merge requests** (weeks 9–10)
@@ -67,3 +78,4 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0006](adr/0006-websocket-tickets.md) | One-time WebSocket tickets instead of tokens in URLs |
 | [0011](adr/0011-sessions-and-refresh-rotation.md) | In-memory access tokens, rotating refresh cookie with reuse detection |
 | [0012](adr/0012-sync-server-on-pycrdt.md) | Own sync server and client provider on pycrdt/Yjs, and the pycrdt pitfalls |
+| [0013](adr/0013-sharing-model.md) | Membership-only access, hashed share links, instant revocation |

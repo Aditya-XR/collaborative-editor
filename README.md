@@ -3,7 +3,8 @@
 Real-time collaborative documents, in the spirit of Google Docs, with offline editing and
 Git-style branches: fork a live document, work on it privately, and open a merge request.
 
-> **Status:** v2 rebuild in progress — phase 2 done (live co-editing, cursors, offline editing).
+> **Status:** v2 rebuild in progress — phase 4 built (sharing and roles); deployment next,
+> see [docs/DEPLOY.md](docs/DEPLOY.md).
 > See [docs/PLAN.md](docs/PLAN.md).
 > The original MERN version is preserved under the `v1` tag.
 

@@ -1,8 +1,9 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 # Placeholder for local dev only; the validator below refuses it in production.
 _DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-in-production"  # noqa: S105
@@ -11,7 +12,9 @@ _DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-in-production"  # noqa
 class Settings(BaseSettings):
     """Runtime configuration, read from environment variables or apps/api/.env."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # hide_input_in_errors: a startup error must not print the settings it was given, which
+    # include DATABASE_URL and REDIS_URL with their passwords, into the deploy logs.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
@@ -54,10 +57,29 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.env == "production"
 
+    @field_validator("database_url")
+    @classmethod
+    def _use_asyncpg(cls, value: str) -> str:
+        """Accepts the URL a host hands out (Neon: postgresql://…?sslmode=require&…) and adapts
+        it for asyncpg, which needs its own driver name, spells TLS as `ssl`, and rejects libpq
+        options such as `channel_binding`."""
+        url = make_url(value)
+        if url.drivername in ("postgres", "postgresql"):
+            url = url.set(drivername="postgresql+asyncpg")
+        query = dict(url.query)
+        if "sslmode" in query:
+            query["ssl"] = query.pop("sslmode")
+        query.pop("channel_binding", None)
+        return url.set(query=query).render_as_string(hide_password=False)
+
     @model_validator(mode="after")
-    def _require_real_secret_in_production(self) -> Self:
-        if self.is_production and (self.jwt_secret == _DEV_JWT_SECRET or len(self.jwt_secret) < 32):
+    def _require_safe_production_settings(self) -> Self:
+        if not self.is_production:
+            return self
+        if self.jwt_secret == _DEV_JWT_SECRET or len(self.jwt_secret) < 32:
             raise ValueError("JWT_SECRET must be set to a random value of at least 32 characters")
+        if not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE must be true in production (cookies over HTTPS only)")
         return self
 
 

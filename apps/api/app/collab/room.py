@@ -44,6 +44,7 @@ class CloseCode(IntEnum):
     FORBIDDEN = 4403  # access removed: stop, drop the local copy
     NOT_FOUND = 4404  # deleted or trashed: stop, drop the local copy
     TOO_SLOW = 4408  # reconnect; the server could not keep up with sending
+    ROLE_CHANGED = 4409  # reconnect now: a fresh ticket carries the new role
     RATE_LIMITED = 4429  # back off, then reconnect
 
 
@@ -195,6 +196,11 @@ class Room:
 
     async def kick_all(self, code: CloseCode, reason: str) -> None:
         await asyncio.gather(*(c.close(code, reason) for c in list(self.connections)))
+
+    async def kick_user(self, user_id: uuid.UUID, code: CloseCode, reason: str) -> int:
+        targets = [c for c in list(self.connections) if c.user_id == user_id]
+        await asyncio.gather(*(c.close(code, reason) for c in targets))
+        return len(targets)
 
     # ----- incoming messages ------------------------------------------------------------------
 

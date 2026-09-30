@@ -18,6 +18,7 @@ from app.core.ratelimit.limiter import RateLimiter
 from app.core.redis import create_redis, ping_redis
 from app.documents.router import router as documents_router
 from app.health.router import router as health_router
+from app.sharing.router import router as sharing_router
 
 log = structlog.get_logger()
 
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me_router, prefix="/api")
     app.include_router(documents_router, prefix="/api")
     app.include_router(collab_router, prefix="/api")
+    app.include_router(sharing_router, prefix="/api")
     return app
 
 

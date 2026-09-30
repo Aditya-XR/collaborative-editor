@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from 'react'
+import { Button } from '../../components/ui/Button'
 import { Link, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
@@ -8,6 +9,7 @@ import { useAuth } from '../auth/useAuth'
 import type { DocumentSummary } from '../documents/api'
 import { useDocument, useRenameDocument } from '../documents/queries'
 import { AppHeader } from '../layout/AppHeader'
+import { ShareDialog } from '../sharing/ShareDialog'
 import { CollaborativeEditor } from './CollaborativeEditor'
 import type { StopReason } from './CollabProvider'
 import { PresenceAvatars } from './PresenceAvatars'
@@ -46,6 +48,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   // The ticket carries the role as of now; the REST copy may be a few seconds older.
   const role = state.role ?? document.role
   const canEdit = role === 'owner' || role === 'editor'
+  const [sharing, setSharing] = useState(false)
 
   return (
     <div className="mt-4 flex flex-col gap-4">
@@ -59,6 +62,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
         <div className="flex items-center gap-4">
           <PresenceAvatars peers={state.peers} />
           <SyncStatus state={state} />
+          {state.status !== 'stopped' && <Button onClick={() => setSharing(true)}>Share</Button>}
         </div>
       </div>
 
@@ -78,6 +82,14 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
             <CenteredSpinner />
           )}
         </>
+      )}
+      {sharing && (
+        <ShareDialog
+          document={document}
+          currentUser={user}
+          role={role}
+          onClose={() => setSharing(false)}
+        />
       )}
     </div>
   )

@@ -9,3 +9,4 @@ REGISTER_PER_IP = RateLimit("register-ip", capacity=3, period_s=3600, fail_open=
 REFRESH_PER_IP = RateLimit("refresh-ip", capacity=30, period_s=60)
 API_PER_USER = RateLimit("api-user", capacity=120, period_s=60)
 COLLAB_TICKET_PER_USER = RateLimit("collab-ticket", capacity=30, period_s=60)
+SHARING_PER_USER = RateLimit("sharing", capacity=30, period_s=3600)

@@ -3,6 +3,7 @@ import { RedirectIfSignedIn, RequireAuth } from '../features/auth/guards'
 import { LoginPage } from '../features/auth/LoginPage'
 import { RegisterPage } from '../features/auth/RegisterPage'
 import { DashboardPage } from '../features/documents/DashboardPage'
+import { AcceptLinkPage } from '../features/sharing/AcceptLinkPage'
 import { FullPageSpinner } from '../components/ui/Spinner'
 import { NotFoundPage } from './NotFoundPage'
 
@@ -23,6 +24,8 @@ export const routes: RouteObject[] = [
         element: <RequireAuth />,
         children: [
           { path: '/', element: <DashboardPage /> },
+          // Signed-out visitors go to sign-in first and come back here afterwards.
+          { path: '/share/:token', element: <AcceptLinkPage /> },
           {
             path: '/d/:documentId',
             // The editor (Tiptap, ProseMirror, Yjs) is most of the JavaScript; sign-in and the
