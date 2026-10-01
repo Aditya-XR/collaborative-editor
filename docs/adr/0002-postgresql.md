@@ -14,7 +14,7 @@ requests, comment threads. Permission checks join these on every request.
 
 ## Decision
 
-Use **PostgreSQL** (Neon in production, `postgres:17` locally and in CI) through async SQLAlchemy 2
+Use **PostgreSQL 18** (Neon in production, `postgres:18` locally and in CI) through async SQLAlchemy 2
 and Alembic migrations.
 
 ## Consequences

@@ -21,7 +21,7 @@ jobs:
         working-directory: apps/api
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: collabedit
           POSTGRES_PASSWORD: collabedit

@@ -5,7 +5,7 @@ name: collabedit
 
 services:
   postgres:
-    image: postgres:17-alpine # matches the major version Neon runs
+    image: postgres:18-alpine # matches production (Neon runs Postgres 18)
     environment:
       POSTGRES_USER: collabedit
       POSTGRES_PASSWORD: collabedit
@@ -13,7 +13,9 @@ services:
     ports:
       - '5432:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18 keeps its data under /var/lib/postgresql/18/docker, so the volume mounts one
+      # level up. A new volume name: the old Postgres 17 volume (pgdata) is left untouched.
+      - pgdata18:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U collabedit -d collabedit']
       interval: 2s
@@ -47,4 +49,4 @@ services:
         condition: service_healthy
 
 volumes:
-  pgdata:
+  pgdata18:
