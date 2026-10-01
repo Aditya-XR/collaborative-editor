@@ -63,7 +63,7 @@ class Settings(BaseSettings):
         """Accepts the URL a host hands out (Neon: postgresql://…?sslmode=require&…) and adapts
         it for asyncpg, which needs its own driver name, spells TLS as `ssl`, and rejects libpq
         options such as `channel_binding`."""
-        url = make_url(value)
+        url = make_url(value.strip())
         if url.drivername in ("postgres", "postgresql"):
             url = url.set(drivername="postgresql+asyncpg")
         query = dict(url.query)
@@ -71,6 +71,22 @@ class Settings(BaseSettings):
             query["ssl"] = query.pop("sslmode")
         query.pop("channel_binding", None)
         return url.set(query=query).render_as_string(hide_password=False)
+
+    @field_validator("redis_url")
+    @classmethod
+    def _require_redis_scheme(cls, value: str) -> str:
+        """Fails at startup, before migrations run, with a message that says what to fix.
+
+        Hosted dashboards often hand out a whole CLI command (`redis-cli -u redis://…`), and
+        pasting all of it otherwise surfaces as an error deep inside the Redis client.
+        """
+        value = value.strip()
+        if not value.startswith(("redis://", "rediss://", "unix://")):
+            raise ValueError(
+                "REDIS_URL must start with redis:// or rediss:// - paste only the URL, "
+                "not a redis-cli command, without quotes"
+            )
+        return value
 
     @model_validator(mode="after")
     def _require_safe_production_settings(self) -> Self:

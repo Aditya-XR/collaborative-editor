@@ -56,3 +56,32 @@ def test_config_errors_never_echo_secrets() -> None:
     # Not even truncated input: pydantic's truncation happens to cut this password off, but a
     # shorter field order would not, so no input may be echoed at all.
     assert "input_value" not in message
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        "redis-cli -u redis://default:s3cret-redis-pass@cache.example:18373",
+        '"redis://default:s3cret-redis-pass@cache.example:18373"',
+        "cache.example:18373",
+    ],
+    ids=["cli-command", "quoted", "no-scheme"],
+)
+def test_redis_url_mistakes_fail_fast_with_a_clear_message(pasted: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings(redis_url=pasted)
+
+    message = str(caught.value)
+    assert "REDIS_URL must start with redis://" in message
+    assert "s3cret-redis-pass" not in message
+
+
+def test_surrounding_whitespace_is_trimmed_from_urls() -> None:
+    settings = Settings(
+        # Leading spaces, a trailing tab and newline: what a careless paste leaves behind.
+        redis_url="  redis://default:p@cache.example:18373" + "\t\n",
+        database_url=" postgresql://u:p@db.example/app ",
+    )
+
+    assert settings.redis_url == "redis://default:p@cache.example:18373"
+    assert settings.database_url == "postgresql+asyncpg://u:p@db.example/app"

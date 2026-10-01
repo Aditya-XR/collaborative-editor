@@ -72,3 +72,4 @@ a month cover one service running all month). Open the app a minute before a dem
 | Editor stuck on "Syncing…" | `VITE_WS_URL` missing or wrong (must be `wss://…onrender.com`), or the API is waking |
 | `readyz` shows database `error` | Pooled Neon URL used, or wrong password |
 | Rate-limit 503 on login | Redis unreachable; login fails closed by design |
+| Startup fails: `REDIS_URL must start with redis://` | Pasted the whole `redis-cli -u …` command, or added quotes; paste only the `redis://…` URL |
