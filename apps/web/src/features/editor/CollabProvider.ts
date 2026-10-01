@@ -8,6 +8,18 @@ import type { Role } from '../documents/api'
 
 const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
+/** One byte, echoed by the server; see the heartbeat comment below. */
+const MESSAGE_HEARTBEAT = 120
+
+/**
+ * Some proxies (Render's edge, for one) do not forward the server's close frame: the socket stays
+ * "open" until the client happens to send something, and even then ends as 1006 seconds later.
+ * Browsers cannot send WebSocket pings, so the client sends a heartbeat the server echoes, and
+ * treats silence as a dead connection. Without it an idle reader could sit "online" forever after
+ * a deploy, receiving nothing.
+ */
+const HEARTBEAT_INTERVAL_MS = 15_000
+const SILENCE_LIMIT_MS = 35_000
 
 /** Close codes sent by the server; see app/collab/room.py. */
 export const CloseCode = {
@@ -84,6 +96,8 @@ export class CollabProvider {
   private socket: WebSocket | null = null
   private attempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  private lastHeardAt = 0
   private local: LocalStore | null = null
   private running = false
   private readonly deps: Required<CollabDeps>
@@ -125,6 +139,7 @@ export class CollabProvider {
     this.running = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    this.stopHeartbeat()
     globalThis.removeEventListener?.('online', this.onBrowserOnline)
     globalThis.removeEventListener?.('offline', this.onBrowserOffline)
     // Tell others our cursor is gone before the socket closes.
@@ -179,6 +194,7 @@ export class CollabProvider {
     socket.onopen = () => {
       this.attempts = 0
       this.update({ status: 'online' })
+      this.startHeartbeat(socket)
       // Our state vector; the server answers with every update we lack.
       const encoder = encoding.createEncoder()
       encoding.writeVarUint(encoder, MESSAGE_SYNC)
@@ -187,17 +203,43 @@ export class CollabProvider {
       if (this.awareness.getLocalState() !== null) this.sendAwareness([this.doc.clientID])
     }
     socket.onmessage = (event: MessageEvent) => {
+      this.lastHeardAt = Date.now()
       this.receive(new Uint8Array(event.data as ArrayBuffer))
     }
-    socket.onclose = (event: CloseEvent) => {
-      if (this.socket !== socket) return
-      this.socket = null
-      // Everyone else's cursor is unknown until we reconnect.
-      const others = [...this.awareness.getStates().keys()].filter((id) => id !== this.doc.clientID)
-      awarenessProtocol.removeAwarenessStates(this.awareness, others, 'disconnect')
-      this.update({ synced: false })
-      this.handleClose(event.code)
-    }
+    socket.onclose = (event: CloseEvent) => this.dropSocket(socket, event.code)
+  }
+
+  /** The one path for "this socket is gone", whether it closed or went silent. */
+  private dropSocket(socket: WebSocket, code: number): void {
+    if (this.socket !== socket) return
+    this.socket = null
+    this.stopHeartbeat()
+    // Everyone else's cursor is unknown until we reconnect.
+    const others = [...this.awareness.getStates().keys()].filter((id) => id !== this.doc.clientID)
+    awarenessProtocol.removeAwarenessStates(this.awareness, others, 'disconnect')
+    this.update({ synced: false })
+    this.handleClose(code)
+  }
+
+  private startHeartbeat(socket: WebSocket): void {
+    this.stopHeartbeat()
+    this.lastHeardAt = Date.now()
+    this.heartbeat = setInterval(() => {
+      if (Date.now() - this.lastHeardAt > SILENCE_LIMIT_MS) {
+        // Do not wait for a close event a proxy may never deliver: reconnect now. The fresh
+        // ticket request also tells us if access was removed while we were cut off.
+        socket.onclose = null
+        socket.close(4000, 'No heartbeat')
+        this.dropSocket(socket, 4000)
+        return
+      }
+      this.send(new Uint8Array([MESSAGE_HEARTBEAT]))
+    }, HEARTBEAT_INTERVAL_MS)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat)
+    this.heartbeat = null
   }
 
   private handleClose(code: number): void {
@@ -238,6 +280,7 @@ export class CollabProvider {
   /** Stops for good: access or the document is gone. */
   private halt(reason: StopReason): void {
     this.update({ status: 'stopped', stopReason: reason, synced: false })
+    this.stopHeartbeat()
     this.socket?.close(1000, 'Stopped')
     this.socket = null
     // Access is gone: the offline copy must not outlive it.

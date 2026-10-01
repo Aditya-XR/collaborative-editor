@@ -134,7 +134,8 @@ function TitleField({ document, editable }: { document: DocumentSummary; editabl
 }
 
 const STOP_MESSAGES: Record<StopReason, string> = {
-  not_found: 'This document was moved to trash or deleted.',
+  // A removal looks the same as a deletion from here: the ticket request answers 404 either way.
+  not_found: 'This document was deleted, or your access to it was removed.',
   forbidden: 'Your access to this document was removed. Its copy on this device was deleted.',
   signed_out: 'Your session ended. Sign in again to keep editing.',
   rejected: 'The server could not accept this document’s changes. Reload the page to try again.',

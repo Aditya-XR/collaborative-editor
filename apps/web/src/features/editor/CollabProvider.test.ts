@@ -286,6 +286,57 @@ describe('CollabProvider', () => {
     provider.stop()
   })
 
+  it('sends a heartbeat every 15 seconds while connected', async () => {
+    const { provider } = setup()
+    provider.start()
+    await flush()
+    const socket = lastSocket()
+    socket.open()
+    socket.sent.length = 0
+
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(socket.sent).toEqual([new Uint8Array([120])])
+    provider.stop()
+  })
+
+  it('reconnects when the server goes silent, even if no close event ever arrives', async () => {
+    // What Render's proxy does: the server has closed its side, the client socket stays "open".
+    const { provider, deps } = setup()
+    provider.start()
+    await flush()
+    const dead = lastSocket()
+    dead.open()
+
+    await vi.advanceTimersByTimeAsync(30_000) // two heartbeats, no answer, still within the limit
+    expect(deps.getTicket).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(15_000) // 45 s of silence: give up on this socket
+    expect(dead.readyState).toBe(3)
+    expect(provider.getSnapshot().status).toBe('offline')
+    await vi.advanceTimersByTimeAsync(250) // backoff, then a fresh ticket
+
+    expect(deps.getTicket).toHaveBeenCalledTimes(2)
+    expect(lastSocket()).not.toBe(dead)
+    provider.stop()
+  })
+
+  it('stays connected while heartbeats are answered', async () => {
+    const { provider, deps } = setup()
+    provider.start()
+    await flush()
+    const socket = lastSocket()
+    socket.open()
+
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(15_000)
+      socket.deliver(new Uint8Array([120])) // the server's echo
+    }
+
+    expect(deps.getTicket).toHaveBeenCalledTimes(1)
+    expect(provider.getSnapshot().status).toBe('online')
+    provider.stop()
+  })
+
   it('can stop and start again, as React does in development', async () => {
     const { provider } = setup()
 

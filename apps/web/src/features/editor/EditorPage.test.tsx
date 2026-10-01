@@ -84,7 +84,7 @@ describe('editor page', () => {
     openDocument()
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This document was moved to trash or deleted.',
+      'This document was deleted, or your access to it was removed.',
     )
     expect(screen.queryByRole('textbox', { name: 'Document body' })).toBeNull()
   })

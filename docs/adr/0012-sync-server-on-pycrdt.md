@@ -42,6 +42,21 @@ Design points worth defending:
 3. **Text positions are UTF-8 bytes**, while browser Yjs uses UTF-16 code units. The server never
    edits text today; branch merges and restores (phases 3 and 7) must convert positions.
 
+## Found in production: close frames that never arrive
+
+On Render, the server's WebSocket close frame does not reach the browser. Probing the live service
+with an invalid ticket: the server closes at once with `4401` (the same image does so in 48 ms
+locally), but the client socket stays open; only after the client sends something does the edge
+drop it, about ten seconds later, as `1006` with no code. So:
+
+- **Close codes are hints, not guarantees.** Any unexpected close makes the client ask the ticket
+  endpoint, which is the source of truth: a 404 there means removed or deleted, a fresh ticket
+  carries a changed role.
+- **Liveness is checked at the application level.** Browsers cannot send WebSocket pings, so the
+  client sends a one-byte heartbeat (`120`) every 15 s, the server echoes it, and 35 s of silence
+  counts as a dead connection. Without this, an idle reader would stay "online" after every
+  deploy while receiving nothing.
+
 ## Consequences
 
 - More code than a library, all of it tested: sync, presence, roles, limits, persistence,
