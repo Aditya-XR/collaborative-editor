@@ -338,3 +338,14 @@ async def test_room_loads_a_log_stored_out_of_order(app: FastAPI, client: AsyncC
 
     async with open_document(app, alice, doc_id) as peer:
         assert str(peer.text) == "aaaaaa"
+
+
+async def test_heartbeats_are_echoed(app: FastAPI, client: AsyncClient) -> None:
+    """Clients detect dead connections through proxies that swallow close frames this way."""
+    alice, _, doc_id = await editor_pair(client, app)
+
+    async with open_document(app, alice, doc_id) as peer:
+        await peer.ws.send_bytes(bytes([120]))
+        reply = await asyncio.wait_for(peer.ws.receive_bytes(), 3)
+
+    assert reply == bytes([120])

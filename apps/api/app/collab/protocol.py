@@ -3,6 +3,8 @@
 Every WebSocket message is binary and starts with a varuint message type:
     0  SYNC       sync step 1 / step 2 / update, handled with pycrdt
     1  AWARENESS  cursors and presence; relayed, never stored
+  120  HEARTBEAT  one byte from the client, echoed straight back (liveness through proxies
+                  that swallow close frames; browsers cannot send WebSocket pings)
 """
 
 import json
@@ -12,6 +14,7 @@ from pycrdt import Decoder, YMessageType, YSyncMessageType, write_var_uint
 
 SYNC = int(YMessageType.SYNC)
 AWARENESS = int(YMessageType.AWARENESS)
+HEARTBEAT = 120
 SYNC_STEP1 = int(YSyncMessageType.SYNC_STEP1)
 SYNC_STEP2 = int(YSyncMessageType.SYNC_STEP2)
 SYNC_UPDATE = int(YSyncMessageType.SYNC_UPDATE)

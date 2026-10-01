@@ -14,6 +14,7 @@ from starlette.websockets import WebSocket, WebSocketState
 from app.collab.protocol import (
     AWARENESS,
     EMPTY_UPDATE,
+    HEARTBEAT,
     SYNC,
     SYNC_STEP1,
     SYNC_STEP2,
@@ -211,6 +212,8 @@ class Room:
             self._receive_sync(connection, message)
         elif message[0] == AWARENESS:
             self._receive_awareness(connection, message)
+        elif message[0] == HEARTBEAT:
+            connection.send(bytes([HEARTBEAT]))
         else:
             raise ProtocolError(f"unknown message type {message[0]}")
 
