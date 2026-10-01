@@ -50,10 +50,18 @@ from the `main` branch.
    used for CORS and for the `Origin` check on the cookie endpoints; a mismatch makes the silent
    refresh fail with `untrusted_origin` after every reload.
 
-### 6. Optional: keep the API awake
-The free service sleeps after ~15 idle minutes, and the first request then waits ~30–60 s. A free
-monitor such as UptimeRobot pinging `/api/healthz` every 10 minutes keeps it warm (750 free hours
-a month cover one service running all month). Open the app a minute before a demo either way.
+### 6. Keep the API awake during the day
+The free service sleeps after ~15 idle minutes, and the first request then waits ~30–60 s. The
+`Keep API awake` workflow (`.github/workflows/keep-awake.yml`) pings `/api/healthz` every
+5 minutes from 08:00 to 23:59 IST and lets the service sleep overnight (~500 of the 750 free
+hours a month). Notes:
+
+- Scheduled workflows run only from the default branch (`main`), and GitHub pauses them after
+  60 days without commits; re-enable it from the Actions tab if that happens.
+- GitHub can start scheduled runs late or skip one under load, so the service may still
+  occasionally fall asleep. For a hard guarantee before an interview or demo, run the workflow by
+  hand (**Actions → Keep API awake → Run workflow**) or open the app a minute early.
+- To change the hours, edit the three `cron` lines; they are in UTC (IST − 5:30).
 
 ## Smoke test after deploying
 
@@ -72,4 +80,5 @@ a month cover one service running all month). Open the app a minute before a dem
 | Editor stuck on "Syncing…" | `VITE_WS_URL` missing or wrong (must be `wss://…onrender.com`), or the API is waking |
 | `readyz` shows database `error` | Pooled Neon URL used, or wrong password |
 | Rate-limit 503 on login | Redis unreachable; login fails closed by design |
+| Editors reconnect ~35 s after a deploy, not instantly | Expected: Render's edge does not forward the server's WebSocket close frame, so clients notice through the heartbeat (ADR 0012) |
 | Startup fails: `REDIS_URL must start with redis://` | Pasted the whole `redis-cli -u …` command, or added quotes; paste only the `redis://…` URL |

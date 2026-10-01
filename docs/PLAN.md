@@ -45,7 +45,7 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
         a real browser with two accounts, including killing the API mid-edit
   - Found upstream: pycrdt/yrs 0.27 drops some out-of-order updates (Yjs does not); see ADR 0012
 - [ ] **3 · Storage, versions, search** (week 5)
-- [ ] **4 · Sharing and roles** (week 6) → **Gate 1: MVP live on the web**
+- [x] **4 · Sharing and roles** (week 6) → **Gate 1: MVP live on the web** ✅ 2026-10-01
   - [x] Members: list, invite by email with a role, change role, remove, leave, transfer ownership
   - [x] Share links: role, expiry, turn off; token shown once and stored hashed; accept never
         lowers access; token sent in the body so it stays out of logs
@@ -55,8 +55,12 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
         asyncpg; migrations at container start; production refuses a dev secret or insecure
         cookies; config errors never echo secrets
   - [x] 121 API tests, 64 web tests; production image rehearsed locally against a fresh database
-  - [ ] Accounts on Neon, Redis Cloud, Render and Vercel, then deploy (see docs/DEPLOY.md)
-  - [ ] Merge `v2` into `main` (the deploy branch) and run the smoke test
+  - [x] Deployed: web <https://collaborative-editor-flax.vercel.app>, API
+        <https://collabedit-api.onrender.com>, Neon Postgres 18 and Redis Cloud (all Singapore)
+  - [x] Production smoke test, 31/31: frontend, auth and cookie rotation, documents, sharing,
+        live editing between two accounts (~110 ms), presence, persistence, revocation
+  - Found in production: Render's edge drops WebSocket close frames; client heartbeat added
+  - [x] Scheduled ping keeps the free API awake 08:00–23:59 IST and lets it sleep overnight
 - [ ] **5 · Multi-instance Redis** (week 7)
 - [ ] **6 · Comments** (week 8)
 - [ ] **7 · Branches and merge requests** (weeks 9–10)
