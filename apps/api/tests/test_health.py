@@ -1,14 +1,37 @@
 import asyncio
 
+import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+
+from app.core.config import Settings
 
 
 async def test_healthz_is_ok(client: AsyncClient) -> None:
     response = await client.get("/api/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "release": "unknown"}
+
+
+async def test_healthz_names_the_deployed_commit(settings: Settings) -> None:
+    from httpx import ASGITransport
+
+    from app.main import create_app
+
+    app = create_app(
+        settings.model_copy(update={"release": "41421ad6c0ffee0123456789abcdef0123456789"})
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        response = await client.get("/api/healthz")
+
+    assert response.json() == {"status": "ok", "release": "41421ad6c0ff"}
+
+
+def test_render_sets_the_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc123")
+
+    assert Settings().release == "abc123"
 
 
 async def test_readyz_ok_when_all_dependencies_answer(client: AsyncClient) -> None:

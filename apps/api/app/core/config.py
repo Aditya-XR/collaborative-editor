@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
+    # The commit this process runs, reported by /api/healthz so a deploy can be confirmed.
+    # Render sets RENDER_GIT_COMMIT on every deploy; RELEASE works anywhere else.
+    release: str = Field(default="", validation_alias=AliasChoices("release", "render_git_commit"))
 
     database_url: str = "postgresql+asyncpg://collabedit:collabedit@localhost:5432/collabedit"
     redis_url: str = "redis://localhost:6379/0"
