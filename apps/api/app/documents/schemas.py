@@ -37,3 +37,15 @@ class DocumentOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
+
+
+class SnippetPart(BaseModel):
+    text: str
+    match: bool
+
+
+class SearchHit(BaseModel):
+    document: DocumentOut
+    # A passage of the body around the matches, split so the client can highlight the matched
+    # words without rendering any HTML. Empty when only the title matched.
+    snippet: list[SnippetPart]

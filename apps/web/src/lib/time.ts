@@ -17,3 +17,15 @@ export function timeAgo(iso: string, now: number = Date.now()): string {
   }
   return 'just now'
 }
+
+const dateTime = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+/** "2 Oct, 14:05": when something happened, precise enough to tell versions apart. */
+export function formatDateTime(iso: string): string {
+  return dateTime.format(new Date(iso))
+}

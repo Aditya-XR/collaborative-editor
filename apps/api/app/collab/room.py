@@ -11,6 +11,7 @@ import structlog
 from pycrdt import Doc, create_sync_message, merge_updates, write_var_uint
 from starlette.websockets import WebSocket, WebSocketState
 
+from app.collab.models import SnapshotKind
 from app.collab.protocol import (
     AWARENESS,
     EMPTY_UPDATE,
@@ -27,7 +28,7 @@ from app.collab.protocol import (
     read_payload,
     sync_update_message,
 )
-from app.collab.store import PendingUpdate, UpdateStore
+from app.collab.store import PendingUpdate, StoredDocument, UpdateStore
 from app.documents.models import DocumentRole
 
 log = structlog.get_logger()
@@ -40,6 +41,7 @@ class CloseCode(IntEnum):
     """WebSocket close codes the browser acts on (4000-4999 are free for applications)."""
 
     RESTARTING = 1012  # reconnect shortly
+    SILENT = 4000  # nothing heard for too long; reconnect
     BAD_MESSAGE = 4400  # do not retry with the same client state
     INVALID_TICKET = 4401  # fetch a new ticket, then reconnect
     FORBIDDEN = 4403  # access removed: stop, drop the local copy
@@ -140,27 +142,31 @@ class Connection:
 class Room:
     """The live, in-memory state of one open document and everyone connected to it.
 
-    The server relays and stores updates but never edits text itself. If it ever does (merging a
-    branch, restoring a version), note that pycrdt indexes text in UTF-8 bytes while browser Yjs
-    uses UTF-16 code units: positions must be converted, not copied.
+    The server relays and stores updates but never edits text itself (restoring a version is an
+    ordinary edit made by the browser, ADR 0014). If it ever does (merging a branch), note that
+    pycrdt indexes text in UTF-8 bytes while browser Yjs uses UTF-16 code units: positions must
+    be converted, not copied.
     """
 
     def __init__(
         self,
         document_id: uuid.UUID,
         store: UpdateStore,
-        updates: list[bytes],
+        stored: StoredDocument,
         *,
         flush_interval: float,
         flush_max_updates: int,
+        compaction_threshold: int,
+        version_interval: float,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.document_id = document_id
         self.doc: Doc[Any] = Doc()
-        if updates:
+        if stored.updates:
             # Merged into one update, never replayed one by one: pycrdt/yrs 0.27 can drop an update
             # that arrives before one it depends on (reference Yjs parks and retries it), and
             # merging orders the operations correctly whatever order the rows are in.
-            self.doc.apply_update(merge_updates(*updates))
+            self.doc.apply_update(merge_updates(*stored.updates))
         self.connections: set[Connection] = set()
         self.holders = 0  # connections admitted or joining; the room is evicted at zero
         self._store = store
@@ -172,6 +178,16 @@ class Room:
         self._tasks: set[asyncio.Task[Any]] = set()
         self._awareness: dict[int, AwarenessEntry] = {}
         self._awareness_owner: dict[int, Connection] = {}
+        # Housekeeping (ADR 0003): rows in the edit log, as far as this instance knows, and
+        # edits saved since the last automatic version.
+        self._log_rows = stored.log_rows
+        self._unversioned = 0
+        self._compaction_threshold = compaction_threshold
+        self._version_interval = version_interval
+        self._clock = clock
+        self._last_version_at = clock()
+        self._compacting: asyncio.Task[None] | None = None
+        self._versioning: asyncio.Task[None] | None = None
 
     # ----- membership -------------------------------------------------------------------------
 
@@ -325,21 +341,68 @@ class Room:
                 self._pending = batch + self._pending
                 if self._timer is None:
                     self._timer = self._spawn(self._flush_later(SAVE_RETRY_SECONDS))
+                return
+            self._log_rows += len(batch)
+            self._unversioned += len(batch)
+        self._maintain()
 
     async def close(self) -> None:
-        """Saves everything still buffered. Called when the room leaves memory."""
+        """Saves everything still buffered, then checkpoints: the session's edits become an
+        automatic version and the log is folded, so the next load reads one snapshot.
+        Called when the room leaves memory."""
         await self.flush()
         if self._timer is not None:
             self._timer.cancel()
-        for task in list(self._tasks):
-            if task is not self._timer:
-                await asyncio.gather(task, return_exceptions=True)
+        # Until none are left: a finishing flush can start a compaction or a version. Judged by
+        # done(), not by membership: a finished task can linger in the set, and waiting for it
+        # to leave turned this loop into a busy spin.
+        while running := [
+            task for task in self._tasks if not task.done() and task is not self._timer
+        ]:
+            await asyncio.gather(*running, return_exceptions=True)
         if self._pending:
             log.error(
                 "room closed with unsaved edits",
                 document_id=str(self.document_id),
                 count=len(self._pending),
             )
+        # Compaction only ever folds rows already saved, so it is safe even then.
+        if self._log_rows:
+            await self._compact()
+        if self._unversioned:
+            await self._save_auto_version()
+
+    # ----- housekeeping -----------------------------------------------------------------------
+
+    def _maintain(self) -> None:
+        """Starts compaction or an automatic version when due. Both run beside editing: the
+        live document is in memory, so neither ever blocks a keystroke."""
+        if self._log_rows >= self._compaction_threshold and self._compacting is None:
+            self._compacting = self._spawn(self._compact())
+        due = self._clock() - self._last_version_at >= self._version_interval
+        if self._unversioned and due and self._versioning is None:
+            self._versioning = self._spawn(self._save_auto_version())
+
+    async def _compact(self) -> None:
+        try:
+            folded = await self._store.compact(self.document_id)
+            if folded:
+                self._log_rows = max(0, self._log_rows - folded)
+        except Exception:
+            log.exception("compaction failed", document_id=str(self.document_id))
+        finally:
+            self._compacting = None
+
+    async def _save_auto_version(self) -> None:
+        covered = self._unversioned
+        self._last_version_at = self._clock()
+        try:
+            await self._store.save_version(self.document_id, SnapshotKind.AUTO)
+            self._unversioned -= covered
+        except Exception:
+            log.exception("saving an automatic version failed", document_id=str(self.document_id))
+        finally:
+            self._versioning = None
 
     def _spawn(self, coroutine: Coroutine[Any, Any, None]) -> asyncio.Task[None]:
         task = asyncio.create_task(coroutine)

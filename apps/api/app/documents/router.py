@@ -9,7 +9,7 @@ from app.collab.room import CloseCode
 from app.core.deps import DbSession
 from app.documents import service
 from app.documents.models import DocumentRole
-from app.documents.schemas import DocumentCreate, DocumentOut, DocumentUpdate, Scope
+from app.documents.schemas import DocumentCreate, DocumentOut, DocumentUpdate, Scope, SearchHit
 
 router = APIRouter(
     prefix="/documents", tags=["documents"], dependencies=[Depends(limit_api_per_user)]
@@ -26,6 +26,18 @@ async def list_documents(
 ) -> list[DocumentOut]:
     views = await service.list_for(session, user, scope=scope, trashed=trashed, limit=limit)
     return [view.out() for view in views]
+
+
+# Declared before /{doc_id}, which would otherwise try to read "search" as an id.
+@router.get("/search")
+async def search_documents(
+    user: CurrentUser,
+    session: DbSession,
+    q: Annotated[str, Query(min_length=1, max_length=200)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+) -> list[SearchHit]:
+    """Full-text search over the titles and bodies of the documents the user can open."""
+    return await service.search(session, user, q, limit)
 
 
 @router.post("", status_code=201)

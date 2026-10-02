@@ -37,3 +37,32 @@ Option 2.
 - Snapshots double as version history; named versions are snapshots that compaction keeps.
 - Writing-replay (a stretch goal) needs the fine-grained log, so compaction will retain raw
   updates for a limited window if that feature ships.
+
+## Implementation (phase 3, 2026-10-02)
+
+- **One base per document.** `document_snapshots` rows of kind `compaction`; a partial unique
+  index guarantees at most one per document. Other kinds are versions (ADR 0014).
+- **When.** A room compacts once the log it knows of reaches 500 rows, and again when the
+  editing session ends (the room leaves memory), so an idle document is one snapshot and an
+  empty log. Neither blocks editing: the live document is in memory.
+- **Never delete what was not read.** Compaction deletes exactly the ids it folded
+  (`id = ANY(:ids)`), not "everything up to the highest id". Log ids come from a sequence, so an
+  edit can take a lower id and commit later; it is invisible to the compaction and must stay.
+- **Consistent loads.** Loading reads the base and the log in one `REPEATABLE READ` transaction,
+  so a compaction committing between the two reads cannot hide rows.
+- **Snapshots are merged updates, not re-encodings.** Re-encoding through a pycrdt Doc would
+  garbage-collect deleted text, but drops edits still waiting for a predecessor (ADR 0012,
+  pitfall 4). The price is size: deleted text stays in the snapshot.
+- **Search text** is refreshed from every fold, without moving `updated_at`.
+
+Measured with `benchmarks/load_document.py` (one writer, keystroke-sized updates, 15%
+backspaces, local Postgres 18, median of 7 loads):
+
+| Keystrokes | Log (rows, bytes) | Open from log | Snapshot | Open from snapshot | Next 500 folded in |
+| --- | --- | --- | --- | --- | --- |
+| 10,000 | 10,000 rows, 242 KB | 218 ms | 113 KB | 17 ms (13x) | 28 ms |
+| 50,000 | 50,000 rows, 1.26 MB | 6,473 ms | 595 KB | 276 ms (23x) | 297 ms |
+
+Opening from the log grows faster than the log (5x the rows, 30x the time), which is why the
+log is never allowed to grow long. A garbage-collected snapshot would be about a third of the
+size (37 KB and 189 KB); correctness wins over that saving.

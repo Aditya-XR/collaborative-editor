@@ -1,4 +1,5 @@
-import { useState, type KeyboardEvent } from 'react'
+import type { Content, Editor } from '@tiptap/react'
+import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Link, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
@@ -10,6 +11,8 @@ import type { DocumentSummary } from '../documents/api'
 import { useDocument, useRenameDocument } from '../documents/queries'
 import { AppHeader } from '../layout/AppHeader'
 import { ShareDialog } from '../sharing/ShareDialog'
+import { versionTitle, type Version } from '../versions/api'
+import { VersionHistory } from '../versions/VersionHistory'
 import { CollaborativeEditor } from './CollaborativeEditor'
 import type { StopReason } from './CollabProvider'
 import { PresenceAvatars } from './PresenceAvatars'
@@ -49,6 +52,22 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   const role = state.role ?? document.role
   const canEdit = role === 'owner' || role === 'editor'
   const [sharing, setSharing] = useState(false)
+  const [history, setHistory] = useState(false)
+  // A ref, not state: nothing on the page re-renders when the editor instance changes.
+  const editor = useRef<Editor | null>(null)
+  const [restored, setRestored] = useState<string | null>(null)
+  const closeHistory = useCallback(() => setHistory(false), [])
+  const onEditorReady = useCallback((instance: Editor | null) => {
+    editor.current = instance
+  }, [])
+
+  // A restore is an ordinary edit through the live editor (ADR 0014): it reaches everyone like
+  // typing, merges with their concurrent edits, and Undo reverts it.
+  function restoreVersion(content: Content, version: Version) {
+    editor.current?.commands.setContent(content)
+    setHistory(false)
+    setRestored(versionTitle(version))
+  }
 
   return (
     <div className="mt-4 flex flex-col gap-4">
@@ -62,6 +81,11 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
         <div className="flex items-center gap-4">
           <PresenceAvatars peers={state.peers} />
           <SyncStatus state={state} />
+          {state.status !== 'stopped' && canEdit && (
+            <Button variant="secondary" onClick={() => setHistory(true)}>
+              History
+            </Button>
+          )}
           {state.status !== 'stopped' && <Button onClick={() => setSharing(true)}>Share</Button>}
         </div>
       </div>
@@ -76,12 +100,38 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
               live.
             </p>
           )}
+          {restored && (
+            <p
+              role="status"
+              className="flex items-center gap-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+            >
+              <span className="flex-1">
+                Restored {restored}. The text from before is saved in version history, and Undo
+                reverts it.
+              </span>
+              <Button variant="ghost" onClick={() => setRestored(null)} aria-label="Dismiss">
+                ✕
+              </Button>
+            </p>
+          )}
           {state.localReady ? (
-            <CollaborativeEditor provider={provider} user={user} editable={canEdit} />
+            <CollaborativeEditor
+              provider={provider}
+              user={user}
+              editable={canEdit}
+              onReady={onEditorReady}
+            />
           ) : (
             <CenteredSpinner />
           )}
         </>
+      )}
+      {history && (
+        <VersionHistory
+          documentId={document.id}
+          onRestore={restoreVersion}
+          onClose={closeHistory}
+        />
       )}
       {sharing && (
         <ShareDialog

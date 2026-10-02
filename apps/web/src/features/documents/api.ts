@@ -12,6 +12,12 @@ export interface DocumentSummary {
   deleted_at: string | null
 }
 
+export interface SearchHit {
+  document: DocumentSummary
+  /** A passage around the matches; `match` parts are the words that matched. */
+  snippet: { text: string; match: boolean }[]
+}
+
 export type DashboardView = 'all' | 'owned' | 'shared' | 'trash'
 
 export const DASHBOARD_VIEWS: { value: DashboardView; label: string }[] = [
@@ -34,4 +40,6 @@ export const documentsApi = {
     api<DocumentSummary>(`/documents/${id}`, { method: 'PATCH', body: { title } }),
   trash: (id: string) => api<void>(`/documents/${id}`, { method: 'DELETE' }),
   restore: (id: string) => api<DocumentSummary>(`/documents/${id}/restore`, { method: 'POST' }),
+  search: (query: string, signal?: AbortSignal) =>
+    api<SearchHit[]>(`/documents/search?q=${encodeURIComponent(query)}`, { signal }),
 }

@@ -83,7 +83,7 @@ async def collaborate(websocket: WebSocket, document_id: uuid.UUID, ticket: str 
         )
         room.join(connection)
         try:
-            await _pump(websocket, room, connection)
+            await _pump(websocket, room, connection, settings.collab_idle_timeout_seconds)
         finally:
             # Shielded: when the server cancels this task (shutdown, or the client vanishing),
             # anyio cancels every await in a plain finally block, and the room would never be
@@ -98,11 +98,23 @@ async def collaborate(websocket: WebSocket, document_id: uuid.UUID, ticket: str 
         rooms.release_connection(claims.user_id)
 
 
-async def _pump(websocket: WebSocket, room: Room, connection: Connection) -> None:
-    """Reads client messages until the socket closes."""
+async def _pump(
+    websocket: WebSocket, room: Room, connection: Connection, idle_timeout: float
+) -> None:
+    """Reads client messages until the socket closes, or goes quiet for too long.
+
+    The idle timeout matters as much as the room's: a socket the client abandoned without
+    closing (a crashed tab, a dropped network, a client bug) would otherwise keep the room in
+    memory forever, and the end-of-session checkpoint would never run.
+    """
     try:
         while not connection.closed:
-            message = await websocket.receive()
+            message = None
+            with anyio.move_on_after(idle_timeout):
+                message = await websocket.receive()
+            if message is None:
+                await connection.close(CloseCode.SILENT, "Nothing heard for too long")
+                return
             if message["type"] == "websocket.disconnect":
                 return
             data = message.get("bytes")

@@ -19,7 +19,7 @@ class RoomManager:
     """
 
     def __init__(self, store: UpdateStore, settings: Settings) -> None:
-        self._store = store
+        self.store = store
         self._settings = settings
         self.rooms: dict[uuid.UUID, Room] = {}
         self._locks: defaultdict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -50,10 +50,12 @@ class RoomManager:
             if room is None:
                 room = Room(
                     document_id,
-                    self._store,
-                    await self._store.load(document_id),
+                    self.store,
+                    await self.store.load(document_id),
                     flush_interval=self._settings.collab_flush_interval_seconds,
                     flush_max_updates=self._settings.collab_flush_max_updates,
+                    compaction_threshold=self._settings.collab_compaction_threshold,
+                    version_interval=self._settings.versions_auto_interval_seconds,
                 )
                 self.rooms[document_id] = room
             room.holders += 1
@@ -85,6 +87,16 @@ class RoomManager:
             await room.close()
 
     # ----- administrative ---------------------------------------------------------------------
+
+    async def flush(self, document_id: uuid.UUID) -> None:
+        """Saves a document's buffered edits now, so a version taken next includes them.
+
+        Only this instance's room is reached; edits buffered on another instance (phase 5) are
+        at most one flush interval behind.
+        """
+        room = self.rooms.get(document_id)
+        if room is not None:
+            await room.flush()
 
     async def close_document(self, document_id: uuid.UUID, code: CloseCode, reason: str) -> None:
         """Disconnects everyone from a document, e.g. when it is moved to trash."""

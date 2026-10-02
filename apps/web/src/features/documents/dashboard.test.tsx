@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { CollabProvider } from '../editor/CollabProvider'
@@ -7,13 +7,24 @@ import { server } from '../../test/server'
 import { BOB, makeDocument, readinessOk, signedIn } from '../../test/fixtures'
 
 // Opening a document starts a live connection; these tests only care about navigation.
-vi.mock('../editor/useCollab', () => ({
-  useCollab: (documentId: string) => ({
-    provider: new CollabProvider(documentId, {
+// One provider per document, as the real hook memoizes it.
+const providers = new Map<string, CollabProvider>()
+function providerFor(documentId: string): CollabProvider {
+  let provider = providers.get(documentId)
+  if (!provider) {
+    provider = new CollabProvider(documentId, {
       getTicket: async () => ({ ticket: 't', role: 'owner' }),
       socketUrl: () => 'ws://unused',
       openLocalStore: () => null,
-    }),
+    })
+    providers.set(documentId, provider)
+  }
+  return provider
+}
+
+vi.mock('../editor/useCollab', () => ({
+  useCollab: (documentId: string) => ({
+    provider: providerFor(documentId),
     state: {
       status: 'online',
       synced: true,
@@ -160,5 +171,77 @@ describe('dashboard', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'This document does not exist or you no longer have access.',
     )
+  })
+})
+
+describe('dashboard search', () => {
+  const hit = {
+    document: mine,
+    snippet: [
+      { text: 'We ship the ', match: false },
+      { text: 'collaborative', match: true },
+      { text: ' editor in <b>October</b>.', match: false },
+    ],
+  }
+
+  function searchEndpoint(seen: string[], hits = [hit]) {
+    return http.get('*/api/documents/search', ({ request }) => {
+      seen.push(new URL(request.url).searchParams.get('q') ?? '')
+      return HttpResponse.json(hits)
+    })
+  }
+
+  it('searches once typing pauses and highlights the matched words', async () => {
+    const seen: string[] = []
+    const { user, router } = setup(searchEndpoint(seen))
+    await screen.findByText('My plan')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search documents' }), '  collab ')
+
+    const results = await screen.findByRole('list', { name: 'Search results' })
+    expect(within(results).getByRole('link', { name: 'My plan' })).toHaveAttribute(
+      'href',
+      '/d/doc-mine',
+    )
+    expect(within(results).getByText('collaborative').tagName).toBe('MARK')
+    // A document's own text is shown as text, never interpreted as HTML.
+    expect(within(results).getByText(/editor in <b>October<\/b>\./)).toBeInTheDocument()
+    expect(seen).toEqual(['collab']) // one request for the whole word, trimmed
+    expect(router.state.location.search).toBe('?q=collab')
+  })
+
+  it('says so when nothing matches', async () => {
+    const { user } = setup(searchEndpoint([], []))
+    await screen.findByText('My plan')
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search documents' }), 'zebra')
+
+    expect(await screen.findByText('No documents match “zebra”.')).toBeInTheDocument()
+  })
+
+  it('goes back to the list when the search is cleared or a filter is picked', async () => {
+    const { user, router } = setup(searchEndpoint([]))
+    await screen.findByText('My plan')
+    const box = screen.getByRole('searchbox', { name: 'Search documents' })
+
+    await user.type(box, 'collab')
+    await screen.findByRole('list', { name: 'Search results' })
+    await user.clear(box)
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Search results' })).toBeNull())
+    expect(screen.getByText("Bob's notes")).toBeInTheDocument()
+
+    await user.type(box, 'collab')
+    await screen.findByRole('list', { name: 'Search results' })
+    await user.click(screen.getByRole('button', { name: 'Owned by me' }))
+    expect(box).toHaveValue('')
+    await waitFor(() => expect(router.state.location.search).toBe('?view=owned'))
+  })
+
+  it('opens with the search from the URL', async () => {
+    server.use(signedIn(), readinessOk(), documentsEndpoint(), searchEndpoint([]))
+    renderApp('/?q=collab')
+
+    expect(await screen.findByRole('list', { name: 'Search results' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search documents' })).toHaveValue('collab')
   })
 })

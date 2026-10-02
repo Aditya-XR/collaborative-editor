@@ -15,15 +15,20 @@ const MESSAGE_HEARTBEAT = 120
  * Some proxies (Render's edge, for one) do not forward the server's close frame: the socket stays
  * "open" until the client happens to send something, and even then ends as 1006 seconds later.
  * Browsers cannot send WebSocket pings, so the client sends a heartbeat the server echoes, and
- * treats silence as a dead connection. Without it an idle reader could sit "online" forever after
- * a deploy, receiving nothing.
+ * gives up on a socket when a heartbeat stays unanswered. Without it an idle reader could sit
+ * "online" forever after a deploy, receiving nothing.
+ *
+ * The test is "unanswered", not "nothing heard lately": Chrome may run a hidden tab's timers only
+ * once a minute, and judging by silence would then reconnect every minute for no reason. The
+ * heartbeats also keep the server's idle timeout from closing a quiet but live reader.
  */
 const HEARTBEAT_INTERVAL_MS = 15_000
-const SILENCE_LIMIT_MS = 35_000
+const UNANSWERED_LIMIT_MS = 25_000
 
 /** Close codes sent by the server; see app/collab/room.py. */
 export const CloseCode = {
   restarting: 1012,
+  silent: 4000, // either side heard nothing for too long; reconnect
   badMessage: 4400,
   invalidTicket: 4401,
   forbidden: 4403,
@@ -97,7 +102,11 @@ export class CollabProvider {
   private attempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
-  private lastHeardAt = 0
+  /** When the oldest heartbeat still waiting for any reply was sent; null when none is. */
+  private unansweredSince: number | null = null
+  /** Bumped by every connect and stop: a connect that resumes after a newer one, or after a
+   * stop, must not open a second socket nobody would ever close. */
+  private generation = 0
   private local: LocalStore | null = null
   private running = false
   private readonly deps: Required<CollabDeps>
@@ -137,6 +146,7 @@ export class CollabProvider {
   stop(): void {
     if (!this.running) return
     this.running = false
+    this.generation += 1
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     this.stopHeartbeat()
@@ -172,20 +182,24 @@ export class CollabProvider {
 
   private async connect(): Promise<void> {
     if (!this.running || this.socket || this.state.status === 'stopped') return
+    const generation = ++this.generation
     this.update({ status: 'connecting' })
 
-    let ticket: string
+    let grant: { ticket: string; role: Role }
     try {
-      const grant = await this.deps.getTicket(this.documentId)
-      ticket = grant.ticket
-      this.update({ role: grant.role })
+      grant = await this.deps.getTicket(this.documentId)
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return this.halt('not_found')
       if (error instanceof ApiError && error.status === 403) return this.halt('forbidden')
       if (error instanceof ApiError && error.status === 401) return this.halt('signed_out')
+      if (generation !== this.generation) return
       return this.scheduleReconnect() // offline or server down: keep editing locally, retry
     }
-    if (!this.running) return
+    // While the ticket was on its way, the provider may have stopped (and even started again,
+    // as React does in development) or another connect may have begun: that one wins.
+    if (!this.running || generation !== this.generation || this.socket) return
+    this.update({ role: grant.role })
+    const ticket = grant.ticket
 
     const socket = this.deps.createSocket(this.deps.socketUrl(this.documentId, ticket))
     socket.binaryType = 'arraybuffer'
@@ -203,7 +217,7 @@ export class CollabProvider {
       if (this.awareness.getLocalState() !== null) this.sendAwareness([this.doc.clientID])
     }
     socket.onmessage = (event: MessageEvent) => {
-      this.lastHeardAt = Date.now()
+      this.unansweredSince = null // anything at all proves the connection works
       this.receive(new Uint8Array(event.data as ArrayBuffer))
     }
     socket.onclose = (event: CloseEvent) => this.dropSocket(socket, event.code)
@@ -223,16 +237,18 @@ export class CollabProvider {
 
   private startHeartbeat(socket: WebSocket): void {
     this.stopHeartbeat()
-    this.lastHeardAt = Date.now()
+    this.unansweredSince = null
     this.heartbeat = setInterval(() => {
-      if (Date.now() - this.lastHeardAt > SILENCE_LIMIT_MS) {
+      const now = Date.now()
+      if (this.unansweredSince !== null && now - this.unansweredSince > UNANSWERED_LIMIT_MS) {
         // Do not wait for a close event a proxy may never deliver: reconnect now. The fresh
         // ticket request also tells us if access was removed while we were cut off.
         socket.onclose = null
-        socket.close(4000, 'No heartbeat')
-        this.dropSocket(socket, 4000)
+        socket.close(CloseCode.silent, 'No heartbeat')
+        this.dropSocket(socket, CloseCode.silent)
         return
       }
+      this.unansweredSince ??= now
       this.send(new Uint8Array([MESSAGE_HEARTBEAT]))
     }, HEARTBEAT_INTERVAL_MS)
   }

@@ -1,6 +1,6 @@
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect } from 'react'
 import type { User } from '../auth/session'
@@ -12,10 +12,13 @@ export function CollaborativeEditor({
   provider,
   user,
   editable,
+  onReady,
 }: {
   provider: CollabProvider
   user: User
   editable: boolean
+  /** Hands the live editor to the page, which restores versions through it. */
+  onReady?: (editor: Editor | null) => void
 }) {
   const editor = useEditor(
     {
@@ -47,6 +50,11 @@ export function CollaborativeEditor({
   useEffect(() => {
     editor?.setEditable(editable)
   }, [editor, editable])
+
+  useEffect(() => {
+    onReady?.(editor)
+    return () => onReady?.(null)
+  }, [editor, onReady])
 
   if (!editor) return null
   return (

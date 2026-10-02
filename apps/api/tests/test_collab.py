@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from httpx import AsyncClient
-from pycrdt import Text
+from pycrdt import Doc, Text, merge_updates
 from sqlalchemy import func, select, text
 
 from app.collab.models import DocumentUpdate
@@ -34,6 +34,15 @@ async def stored_update_count(app: FastAPI, document_id: str) -> int:
             select(func.count()).where(DocumentUpdate.document_id == uuid.UUID(document_id))
         )
     return int(count or 0)
+
+
+async def saved_text(app: FastAPI, document_id: str) -> str:
+    """The text as a fresh load from Postgres would see it: snapshot plus log."""
+    stored = await app.state.rooms.store.load(uuid.UUID(document_id))
+    doc: Doc[Any] = Doc()
+    if stored.updates:
+        doc.apply_update(merge_updates(*stored.updates))
+    return str(doc.get("text", type=Text))
 
 
 # ----- tickets ------------------------------------------------------------------------------
@@ -301,10 +310,10 @@ async def test_shutdown_saves_open_documents(settings: Settings, client: AsyncCl
         async with open_document(app, alice, doc["id"]) as peer:
             await peer.insert(0, "unsaved")
             await asyncio.sleep(0.05)
-        assert await stored_update_count(app, doc["id"]) == 0
+        assert await saved_text(app, doc["id"]) == ""
     # Lifespan exit ran RoomManager.shutdown(); check through a fresh connection.
     async with app.router.lifespan_context(app):
-        assert await stored_update_count(app, doc["id"]) == 1
+        assert await saved_text(app, doc["id"]) == "unsaved"
 
 
 async def test_unused_rooms_keep_no_rows(app: FastAPI, client: AsyncClient) -> None:
@@ -338,6 +347,27 @@ async def test_room_loads_a_log_stored_out_of_order(app: FastAPI, client: AsyncC
 
     async with open_document(app, alice, doc_id) as peer:
         assert str(peer.text) == "aaaaaa"
+
+
+async def test_silent_connections_are_closed(settings: Settings, client: AsyncClient) -> None:
+    """A socket its client abandoned must not keep the room, and its checkpoint, waiting."""
+    from app.main import create_app
+
+    app = create_app(settings.model_copy(update={"collab_idle_timeout_seconds": 0.3}))
+    async with app.router.lifespan_context(app):
+        alice = await register(client, email="idle@example.com")
+        doc = await create_doc(client, alice)
+        async with (
+            open_document(app, alice, doc["id"]) as quiet,
+            open_document(app, alice, doc["id"]) as chatty,
+        ):
+            for _ in range(4):  # 0.6 s of heartbeats, twice the timeout
+                await chatty.ws.send_bytes(bytes([120]))
+                await asyncio.wait_for(chatty.ws.receive_bytes(), 1)
+                await asyncio.sleep(0.15)
+            assert await quiet.closed_with(timeout=1) == CloseCode.SILENT
+            await chatty.ws.send_bytes(bytes([120]))
+            assert await asyncio.wait_for(chatty.ws.receive_bytes(), 1) == bytes([120])
 
 
 async def test_heartbeats_are_echoed(app: FastAPI, client: AsyncClient) -> None:

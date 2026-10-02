@@ -7,8 +7,12 @@ import { server } from '../../test/server'
 import type { CollabDeps, CollabState } from './CollabProvider'
 import { CollabProvider } from './CollabProvider'
 
-// The page's live connection is replaced by a provider whose state each test controls.
-const live: { state: CollabState } = { state: baseState() }
+// The page's live connection is replaced by a provider whose state each test controls. It is
+// created once per test, as the real hook memoizes it.
+const live: { state: CollabState; provider: CollabProvider | null } = {
+  state: baseState(),
+  provider: null,
+}
 
 vi.mock('./useCollab', () => ({
   useCollab: (documentId: string) => {
@@ -17,7 +21,8 @@ vi.mock('./useCollab', () => ({
       socketUrl: () => 'ws://unused',
       openLocalStore: () => null,
     }
-    return { provider: new CollabProvider(documentId, deps), state: live.state }
+    live.provider ??= new CollabProvider(documentId, deps)
+    return { provider: live.provider, state: live.state }
   },
 }))
 
@@ -47,6 +52,7 @@ function openDocument(document = makeDocument()) {
 
 beforeEach(() => {
   live.state = baseState()
+  live.provider = null
 })
 
 describe('editor page', () => {

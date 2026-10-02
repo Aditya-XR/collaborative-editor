@@ -92,11 +92,11 @@ def settings(database_url: str) -> Settings:
 async def app(settings: Settings) -> AsyncIterator[FastAPI]:
     app = create_app(settings)
     async with app.router.lifespan_context(app):
-        await _reset_state(app)
+        await reset_state(app)
         yield app
 
 
-async def _reset_state(app: FastAPI) -> None:
+async def reset_state(app: FastAPI) -> None:
     tables = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
     async with app.state.db_engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))

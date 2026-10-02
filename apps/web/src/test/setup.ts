@@ -8,6 +8,13 @@ import { server } from './server'
 // than a second to import on a busy CI runner, which made those tests flaky under load.
 configure({ asyncUtilTimeout: 5000 })
 
+// jsdom does no layout, and Range lacks the measuring methods ProseMirror calls when it
+// scrolls the selection into view (after Undo, for instance). Report an empty box.
+Range.prototype.getClientRects ??= function () {
+  return Object.assign([], { item: () => null }) as unknown as DOMRectList
+}
+Range.prototype.getBoundingClientRect ??= () => new DOMRect()
+
 // Any request without a handler fails the test, so no call goes unnoticed.
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 

@@ -337,6 +337,41 @@ describe('CollabProvider', () => {
     provider.stop()
   })
 
+  it('does not reconnect when a hidden tab runs its timers only once a minute', async () => {
+    const { provider, deps } = setup()
+    provider.start()
+    await flush()
+    const socket = lastSocket()
+    socket.open()
+
+    for (let i = 0; i < 3; i++) {
+      await vi.advanceTimersByTimeAsync(15_000) // a heartbeat goes out...
+      socket.deliver(new Uint8Array([120])) // ...and is answered
+      vi.setSystemTime(Date.now() + 60_000) // then the browser lets a minute pass, timers asleep
+    }
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(deps.getTicket).toHaveBeenCalledTimes(1)
+    expect(socket.readyState).toBe(1)
+    provider.stop()
+  })
+
+  it('never leaves a socket open when stopped and restarted while fetching a ticket', async () => {
+    // React's development double mount: start, stop, start, all before the ticket arrives.
+    const { provider } = setup()
+
+    provider.start()
+    provider.stop()
+    provider.start()
+    await flush()
+    lastSocket().open()
+
+    const open = FakeSocket.all.filter((socket) => socket.readyState !== 3)
+    expect(open).toHaveLength(1)
+    provider.stop()
+    expect(FakeSocket.all.every((socket) => socket.readyState === 3)).toBe(true)
+  })
+
   it('can stop and start again, as React does in development', async () => {
     const { provider } = setup()
 

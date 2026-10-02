@@ -61,6 +61,16 @@ If CI's `npm ci` fails with `Missing: … from lock file`, the lockfile was writ
 dropped an entry (npm 11.6 can omit transitive dependencies of optional packages). Rebuild it
 with the npm CI uses: `npx npm@10 install --package-lock-only`.
 
+## Benchmarks
+
+How much compaction speeds up opening a document (ADR 0003 has the results):
+
+```bash
+# apps/api, with the Docker services running and migrations applied
+uv run python -m benchmarks.load_document             # 10,000 keystrokes
+uv run python -m benchmarks.load_document --edits 50000
+```
+
 ## Layout
 
 ```text

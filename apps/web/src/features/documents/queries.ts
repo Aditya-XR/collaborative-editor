@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { documentsApi, type DashboardView } from './api'
 
 const keys = {
   all: ['documents'] as const,
   list: (view: DashboardView) => ['documents', 'list', view] as const,
   one: (id: string) => ['documents', 'one', id] as const,
+  search: (query: string) => ['documents', 'search', query] as const,
 }
 
 export function useDocuments(view: DashboardView) {
@@ -13,6 +14,16 @@ export function useDocuments(view: DashboardView) {
 
 export function useDocument(id: string) {
   return useQuery({ queryKey: keys.one(id), queryFn: () => documentsApi.get(id), retry: false })
+}
+
+/** Full-text search. While the next query loads, the previous results stay on screen. */
+export function useDocumentSearch(query: string) {
+  return useQuery({
+    queryKey: keys.search(query),
+    queryFn: ({ signal }) => documentsApi.search(query, signal),
+    enabled: query.length > 0,
+    placeholderData: keepPreviousData,
+  })
 }
 
 /** Every change can move a document between lists, so all document queries are refetched. */

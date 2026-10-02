@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     collab_messages_per_second: float = 60.0
     # Outgoing messages queued per connection before it is dropped as too slow.
     collab_send_queue_size: int = 512
+    # A connection that sends nothing for this long is closed. Clients send a heartbeat every
+    # 15 seconds, but a hidden browser tab may run its timers only once a minute.
+    collab_idle_timeout_seconds: float = 150.0
+    # The edit log is folded into the document's snapshot once it holds this many rows.
+    collab_compaction_threshold: int = 500
+
+    # Version history: an automatic version at most this often while people edit, and one when
+    # an editing session ends. The newest automatic versions are kept; named ones until unnamed.
+    versions_auto_interval_seconds: float = 600.0
+    versions_auto_kept: int = 50
+    versions_named_max: int = 100
 
     @property
     def is_production(self) -> bool:

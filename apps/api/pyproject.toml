@@ -46,6 +46,9 @@ ignore = ["S101"] # assert is fine in tests
     "S311",  # seeded random for reproducible concurrency tests
     "ASYNC109",  # test helpers take explicit timeouts
 ]
+"benchmarks/**" = [
+    "S311",  # seeded random for reproducible workloads
+]
 
 [tool.ruff.lint.isort]
 # The local alembic/ migrations folder would otherwise make isort treat the package as ours.

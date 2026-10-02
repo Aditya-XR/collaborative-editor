@@ -40,7 +40,15 @@ Design points worth defending:
    stored log is loaded with `merge_updates`, which is immune to row order. A regression test
    skips itself once upstream fixes the behaviour.
 3. **Text positions are UTF-8 bytes**, while browser Yjs uses UTF-16 code units. The server never
-   edits text today; branch merges and restores (phases 3 and 7) must convert positions.
+   edits text: version restores are made by the browser (ADR 0014), and branch merges (phase 7)
+   must convert positions.
+4. **Re-encoding a document drops updates that are still waiting.** An update whose predecessor
+   has not arrived is kept pending inside the Doc, and `Doc.get_update()` leaves it out. Reference
+   Yjs includes pending updates when encoding; yrs silently loses them. Folding "c, then delete a"
+   without "a" through a Doc and adding "a" afterwards gives `ab`; `merge_updates` gives the
+   correct `bc`. Compaction can fold an edit before its predecessor's transaction commits, so
+   snapshots store the merged update, never a re-encoding (ADR 0003). A regression test commits
+   two edits out of order around a compaction.
 
 ## Found in production: close frames that never arrive
 
@@ -53,9 +61,20 @@ drop it, about ten seconds later, as `1006` with no code. So:
   endpoint, which is the source of truth: a 404 there means removed or deleted, a fresh ticket
   carries a changed role.
 - **Liveness is checked at the application level.** Browsers cannot send WebSocket pings, so the
-  client sends a one-byte heartbeat (`120`) every 15 s, the server echoes it, and 35 s of silence
-  counts as a dead connection. Without this, an idle reader would stay "online" after every
-  deploy while receiving nothing.
+  client sends a one-byte heartbeat (`120`) every 15 s and the server echoes it. A heartbeat left
+  unanswered for 25 s counts as a dead connection. Without this, an idle reader would stay
+  "online" after every deploy while receiving nothing.
+- **"Unanswered", not "nothing heard lately".** The first version judged by silence (35 s since
+  the last message). Chrome may run a hidden tab's timers only once a minute, which would have
+  made such a tab reconnect every minute. Waiting for a specific heartbeat's reply has no such
+  false alarm.
+- **The server times out silent sockets too** (150 s, longer than a throttled tab's minute).
+  Found while testing version history in a real browser: React's development double mount
+  (start, stop, start while the first ticket request was in flight) let both pending connects
+  open a socket, and the orphan, which nothing would ever close, kept its room in memory for
+  good, so the end-of-session checkpoint never ran. The client now tags each connect with a
+  generation and drops stale ones; the server timeout bounds any leak that remains, from a bug or
+  from a network path that died without a close.
 
 ## Consequences
 

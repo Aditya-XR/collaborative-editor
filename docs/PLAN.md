@@ -44,7 +44,27 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
   - [x] 97 API tests (incl. a 150-case Hypothesis convergence property), 53 web tests; checked in
         a real browser with two accounts, including killing the API mid-edit
   - Found upstream: pycrdt/yrs 0.27 drops some out-of-order updates (Yjs does not); see ADR 0012
-- [ ] **3 · Storage, versions, search** (week 5)
+- [x] **3 · Storage, versions, search** (week 5) ✅ 2026-10-02
+  - [x] Compaction: the edit log folds into one snapshot at 500 rows and when a session ends,
+        under an advisory lock; deletes only the rows it read; loads read base and log in one
+        `REPEATABLE READ` snapshot. Opening a 10,000-keystroke document: 218 ms → 17 ms
+        (50,000: 6.5 s → 0.28 s); see ADR 0003
+  - [x] Version history: automatic (session end, every 10 minutes), named, and pre-restore
+        versions; newest 50 automatic kept, up to 100 named; editors only
+  - [x] Restore is an ordinary edit made by the browser through y-prosemirror: concurrent edits
+        survive and Undo reverts it (ADR 0014)
+  - [x] Full-text search over titles and text with Postgres (GIN, weighted, prefix matching on
+        stemmed and unstemmed words), highlighted snippets without HTML (ADR 0015)
+  - [x] Web: search box on the dashboard (debounced, kept in the URL); version history dialog
+        with save, name, read-only preview and restore
+  - [x] 173 API tests (a 40-schedule compaction property, out-of-order commits, the advisory
+        lock, hostile search input), 79 web tests (restore and Undo on a real editor); checked
+        in a real browser with two tabs
+  - Found: pycrdt drops waiting updates when re-encoding a document, so snapshots store merged
+    updates (ADR 0012, pitfall 4)
+  - Found and fixed: a connect race left an orphaned socket that kept rooms open forever; the
+    client now drops stale connects, the server closes sockets silent for 150 s, and the
+    heartbeat judges unanswered pings rather than silence (ADR 0012)
 - [x] **4 · Sharing and roles** (week 6) → **Gate 1: MVP live on the web** ✅ 2026-10-01
   - [x] Members: list, invite by email with a role, change role, remove, leave, transfer ownership
   - [x] Share links: role, expiry, turn off; token shown once and stored hashed; accept never
@@ -83,3 +103,5 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0011](adr/0011-sessions-and-refresh-rotation.md) | In-memory access tokens, rotating refresh cookie with reuse detection |
 | [0012](adr/0012-sync-server-on-pycrdt.md) | Own sync server and client provider on pycrdt/Yjs, and the pycrdt pitfalls |
 | [0013](adr/0013-sharing-model.md) | Membership-only access, hashed share links, instant revocation |
+| [0014](adr/0014-versions-and-restore.md) | Versions as snapshots; restore as an ordinary edit made by the browser |
+| [0015](adr/0015-full-text-search.md) | Full-text search in Postgres, stemmed and as-typed prefixes |

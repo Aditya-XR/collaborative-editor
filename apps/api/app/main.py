@@ -19,6 +19,7 @@ from app.core.redis import create_redis, ping_redis
 from app.documents.router import router as documents_router
 from app.health.router import router as health_router
 from app.sharing.router import router as sharing_router
+from app.versions.router import router as versions_router
 
 log = structlog.get_logger()
 
@@ -31,7 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.db_engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
-    app.state.rooms = RoomManager(UpdateStore(app.state.sessionmaker), settings)
+    store = UpdateStore(app.state.sessionmaker, auto_versions_kept=settings.versions_auto_kept)
+    app.state.rooms = RoomManager(store, settings)
     app.state.redis = redis
     app.state.rate_limiter = RateLimiter(redis, enabled=settings.rate_limit_enabled)
     app.state.readiness_checks = {
@@ -81,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router, prefix="/api")
     app.include_router(collab_router, prefix="/api")
     app.include_router(sharing_router, prefix="/api")
+    app.include_router(versions_router, prefix="/api")
     return app
 
 

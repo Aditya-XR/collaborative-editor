@@ -1,8 +1,11 @@
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from functools import reduce
+from typing import Any
 
-from sqlalchemy import Select, and_, select
+from sqlalchemy import ColumnElement, Select, and_, func, literal_column, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +13,7 @@ from app.auth.models import User
 from app.core.errors import ApiError
 from app.core.ids import uuid7
 from app.documents.models import ROLE_RANK, Document, DocumentMember, DocumentRole
-from app.documents.schemas import DocumentOut, OwnerOut, Scope
+from app.documents.schemas import DocumentOut, OwnerOut, Scope, SearchHit, SnippetPart
 
 
 @dataclass(frozen=True)
@@ -131,3 +134,82 @@ async def restore(session: AsyncSession, view: DocumentView) -> DocumentView:
     view.document.deleted_at = None
     await session.commit()
     return view
+
+
+# ----- search --------------------------------------------------------------------------------
+
+ENGLISH: ColumnElement[Any] = literal_column("'english'::regconfig")
+SIMPLE: ColumnElement[Any] = literal_column("'simple'::regconfig")
+# Characters with a meaning in tsquery syntax, and control characters (Postgres rejects NUL
+# outright); splitting on them leaves only plain words.
+_QUERY_SYNTAX = re.compile(r"[\s&|!():*<>'\"\\\x00-\x1f\x7f]+")
+MAX_SEARCH_TERMS = 8
+# \x02 and \x03 never occur in search_text (see app.collab.text), so they mark matches safely.
+MATCH_START, MATCH_STOP = "\x02", "\x03"
+_HEADLINE = (
+    f"StartSel={MATCH_START}, StopSel={MATCH_STOP}, "
+    'MaxWords=30, MinWords=12, MaxFragments=2, FragmentDelimiter=" … "'
+)
+_MARKER = re.compile(f"[{MATCH_START}{MATCH_STOP}]")
+
+
+def search_terms(text: str) -> list[str]:
+    return [term for term in _QUERY_SYNTAX.split(text) if term][:MAX_SEARCH_TERMS]
+
+
+def match_query(terms: list[str]) -> ColumnElement[str]:
+    """Every term must match, as a prefix, either stemmed or as typed (see SEARCH_VECTOR).
+
+    Each term is quoted and passed as a bound parameter: what someone types can never become
+    tsquery operators, let alone SQL.
+    """
+
+    def term_query(term: str) -> ColumnElement[str]:
+        prefix = f"'{term}':*"
+        return func.to_tsquery(ENGLISH, prefix).op("||")(func.to_tsquery(SIMPLE, prefix))
+
+    return reduce(lambda left, right: left.op("&&")(right), map(term_query, terms))
+
+
+def snippet_parts(headline: str) -> list[SnippetPart]:
+    # Markers alternate start, stop, start …, so every odd piece is a match.
+    pieces = _MARKER.split(headline)
+    return [
+        SnippetPart(text=piece, match=index % 2 == 1) for index, piece in enumerate(pieces) if piece
+    ]
+
+
+async def search(session: AsyncSession, user: User, text: str, limit: int) -> list[SearchHit]:
+    """Documents the user can open whose title or body matches, best matches first."""
+    terms = search_terms(text)
+    if not terms:
+        return []
+    query = match_query(terms)
+    rows = (
+        await session.execute(
+            _visible_to(user)
+            .where(Document.deleted_at.is_(None), Document.search_tsv.op("@@")(query))
+            # A match in the title weighs more than one in the body (setweight A vs B).
+            .order_by(func.ts_rank(Document.search_tsv, query).desc(), Document.updated_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    if not rows:
+        return []
+    # Highlighting re-parses the text, so it runs only for the hits, not for every match.
+    headlines = {
+        doc_id: headline
+        for doc_id, headline in await session.execute(
+            select(
+                Document.id,
+                func.ts_headline(SIMPLE, Document.search_text, query, _HEADLINE),
+            ).where(Document.id.in_([doc.id for doc, _, _ in rows]))
+        )
+    }
+    return [
+        SearchHit(
+            document=DocumentView(doc, role, owner_name).out(),
+            snippet=snippet_parts(headlines.get(doc.id) or ""),
+        )
+        for doc, role, owner_name in rows
+    ]

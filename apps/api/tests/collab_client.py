@@ -10,7 +10,15 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from httpx_ws import AsyncWebSocketSession, WebSocketDisconnect, aconnect_ws
 from httpx_ws.transport import ASGIWebSocketTransport
-from pycrdt import Doc, Text, create_sync_message, handle_sync_message
+from pycrdt import (
+    Doc,
+    Text,
+    XmlElement,
+    XmlFragment,
+    XmlText,
+    create_sync_message,
+    handle_sync_message,
+)
 
 from app.collab.protocol import (
     AWARENESS,
@@ -23,6 +31,7 @@ from app.collab.protocol import (
     read_payload,
     sync_update_message,
 )
+from app.collab.text import EDITOR_ROOT
 from tests.conftest import RegisteredUser
 
 BASE = "http://testserver.local"
@@ -94,6 +103,16 @@ class Peer:
             del text[index : index + length]
 
         await self.edit(remove)
+
+    async def write_paragraphs(self, *paragraphs: str) -> None:
+        """Appends paragraphs the way the browser editor stores them: an XML tree under
+        Tiptap's root, rather than the flat test text above."""
+        before = self.doc.get_state()
+        body = self.doc.get(EDITOR_ROOT, type=XmlFragment)
+        for paragraph in paragraphs:
+            element = body.children.append(XmlElement("paragraph"))
+            element.children.append(XmlText(paragraph))
+        await self.ws.send_bytes(sync_update_message(self.doc.get_update(before)))
 
     async def set_presence(self, state: dict[str, Any] | None) -> None:
         self._awareness_clock += 1
