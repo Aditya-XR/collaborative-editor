@@ -85,3 +85,48 @@ async def test_search_text_is_backfilled_for_documents_edited_before_search(
         await engine.dispose()
 
     assert rows == {"Old doc": "Written before search existed", "Never opened": ""}
+
+
+async def test_deployment_test_accounts_are_removed_and_nothing_else(database_url: str) -> None:
+    from sqlalchemy import text
+
+    config = alembic_config(database_url)
+    await asyncio.to_thread(command.downgrade, config, "b48a71d073f4")
+    engine = create_engine(database_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("TRUNCATE users, documents CASCADE"))
+            await conn.execute(
+                text(
+                    "INSERT INTO users (id, email, name, password_hash) VALUES"
+                    " ('01900000-0000-7000-8000-00000000000a', 'smoke-bob-605e929c@example.com',"
+                    "  'Smoke Bob', 'x'),"
+                    " ('01900000-0000-7000-8000-00000000000b', 'real@example.com', 'Real', 'x')"
+                )
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO documents (id, owner_id, title) VALUES"
+                    " ('01900000-0000-7000-8000-00000000000c',"
+                    "  '01900000-0000-7000-8000-00000000000a', 'Smoke test'),"
+                    " ('01900000-0000-7000-8000-00000000000d',"
+                    "  '01900000-0000-7000-8000-00000000000b', 'Real work')"
+                )
+            )
+
+        await asyncio.to_thread(command.upgrade, config, "head")
+
+        async with engine.connect() as conn:
+            emails: list[str] = list(
+                (await conn.execute(text("SELECT email FROM users"))).scalars()
+            )
+            titles: list[str] = list(
+                (await conn.execute(text("SELECT title FROM documents"))).scalars()
+            )
+            await conn.execute(text("TRUNCATE users, documents CASCADE"))
+            await conn.commit()
+    finally:
+        await engine.dispose()
+
+    assert emails == ["real@example.com"]
+    assert titles == ["Real work"]  # the test account's document went with it
