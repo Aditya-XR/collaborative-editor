@@ -4,8 +4,10 @@ name: Keep API awake
 # every 5 minutes keeps it warm from 08:00 to 23:59 IST; overnight it is left to sleep, which
 # keeps it well inside the 750 free instance-hours a month (~16 h a day ≈ 500 h).
 #
-# Cron runs in UTC; IST is UTC+5:30, so the window is 02:30-18:29 UTC. GitHub may start
-# scheduled runs a few minutes late, which the 5-minute spacing absorbs.
+# Cron runs in UTC; IST is UTC+5:30, so the window is 02:30-18:29 UTC.
+#
+# A fallback only: GitHub delays and drops frequent scheduled runs (twice in six hours on
+# 2026-10-02), so an external cron service does the real work. See docs/DEPLOY.md, step 6.
 on:
   schedule:
     - cron: '30-55/5 2 * * *' # 08:00-08:25 IST

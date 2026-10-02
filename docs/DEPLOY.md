@@ -51,17 +51,21 @@ from the `main` branch.
    refresh fail with `untrusted_origin` after every reload.
 
 ### 6. Keep the API awake during the day
-The free service sleeps after ~15 idle minutes, and the first request then waits ~30–60 s. The
-`Keep API awake` workflow (`.github/workflows/keep-awake.yml`) pings `/api/healthz` every
-5 minutes from 08:00 to 23:59 IST and lets the service sleep overnight (~500 of the 750 free
-hours a month). Notes:
+The free service sleeps after ~15 idle minutes, and the first request then waits ~30–60 s. Keep it
+awake from 08:00 to 23:59 IST with a ping to `/api/healthz` every 5 minutes, and let it sleep
+overnight (~500 of the 750 free hours a month).
 
-- Scheduled workflows run only from the default branch (`main`), and GitHub pauses them after
-  60 days without commits; re-enable it from the Actions tab if that happens.
-- GitHub can start scheduled runs late or skip one under load, so the service may still
-  occasionally fall asleep. For a hard guarantee before an interview or demo, run the workflow by
-  hand (**Actions → Keep API awake → Run workflow**) or open the app a minute early.
-- To change the hours, edit the three `cron` lines; they are in UTC (IST − 5:30).
+**Use an external cron service** such as [cron-job.org](https://cron-job.org) (free):
+
+1. Create a cron job for `https://collabedit-api.onrender.com/api/healthz`.
+2. Schedule: every 5 minutes, hours 8–23 only, time zone Asia/Kolkata.
+3. Turn on failure notifications if you want an email when the API is down.
+
+**GitHub Actions is only a fallback.** `.github/workflows/keep-awake.yml` runs the same schedule,
+but GitHub delays and drops frequent scheduled runs: on 2026-10-02 it fired twice between
+08:00 and 14:30 IST instead of ~75 times, so the API slept most of the morning. It is still useful
+to wake the API by hand before a demo (**Actions → Keep API awake → Run workflow**).
+GitHub also pauses scheduled workflows after 60 days without commits.
 
 ## Smoke test after deploying
 
