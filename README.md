@@ -1,12 +1,71 @@
 # CollabEdit
 
-Real-time collaborative documents, in the spirit of Google Docs, with offline editing and
-Git-style branches: fork a live document, work on it privately, and open a merge request.
+Real-time collaborative documents, in the spirit of Google Docs: live cursors, offline editing,
+version history, full-text search and link sharing — on a sync server, storage layer and auth
+system written from scratch. Next up: Git-style branches, so you can fork a live document, work on
+it privately, and open a merge request.
 
-> **Status:** v2 rebuild in progress — phase 4 built (sharing and roles); deployment next,
-> see [docs/DEPLOY.md](docs/DEPLOY.md).
-> See [docs/PLAN.md](docs/PLAN.md).
-> The original MERN version is preserved under the `v1` tag.
+[![CI](https://github.com/Aditya-XR/collaborative-editor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Aditya-XR/collaborative-editor/actions/workflows/ci.yml)
+&nbsp;**[Live demo](https://collaborative-editor-flax.vercel.app)** · [Plan and progress](docs/PLAN.md) ·
+[Architecture decisions](docs/adr) · [Deployment](docs/DEPLOY.md)
+
+![Two people editing the same document: Rahul's caret and name appear live in Priya's window, with both avatars and "All changes synced" in the header](docs/screenshots/editor.png)
+
+> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–4
+> of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support, compaction,
+> version history, search and sharing. Still to come: branches and merge requests, comments,
+> multi-instance Redis. The original MERN version is preserved under the
+> [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
+>
+> The free API instance is kept awake 08:00–24:00 IST; outside those hours the first request can
+> take up to a minute while it wakes.
+
+## Highlights
+
+- **Own sync server.** FastAPI WebSockets speak the Yjs sync and awareness protocols on top of
+  pycrdt (Rust Yrs): one room per open document, per-connection send queues, and roles enforced on
+  every update ([ADR 0012](docs/adr/0012-sync-server-on-pycrdt.md)). In production, edits reach
+  other users in about 110 ms.
+- **Edit log + compaction.** Edits are batched into an append-only Postgres log (every 500 ms or
+  50 updates) and folded into snapshots under an advisory lock. Opening a 10,000-keystroke document
+  went from **218 ms to 17 ms**, and a 50,000-keystroke one from 6.5 s to 0.28 s
+  ([ADR 0003](docs/adr/0003-edit-log-and-snapshots.md)).
+- **Self-built rate limiter.** A token bucket in one Redis Lua script: atomic across API
+  instances in a single round trip, failing open or closed per policy
+  ([ADR 0005](docs/adr/0005-token-bucket-rate-limiter.md)).
+- **Careful sessions.** Argon2id passwords, 15-minute JWTs, rotating refresh tokens with reuse
+  detection ([ADR 0011](docs/adr/0011-sessions-and-refresh-rotation.md)), and one-time 30-second
+  WebSocket tickets ([ADR 0006](docs/adr/0006-websocket-tickets.md)).
+- **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
+  when the connection returns, and the copies are wiped on sign-out or when access is revoked.
+- **Tested.** 173 API tests against real Postgres and Redis — including Hypothesis properties for
+  CRDT convergence and compaction — and 79 web tests, all run by GitHub Actions on every push.
+
+## Architecture
+
+```mermaid
+flowchart TB
+  subgraph Browser
+    direction LR
+    UI["React + Tiptap"] --- YD["Yjs document"] --- IDB[("IndexedDB copy")]
+  end
+  subgraph API["FastAPI on Render"]
+    direction LR
+    REST["REST API<br/>auth · documents · sharing · versions · search"]
+    ROOMS["Sync rooms<br/>pycrdt, one per open document"]
+  end
+  subgraph Data["Managed data"]
+    direction LR
+    PG[("PostgreSQL<br/>edit log + snapshots")]
+    RD[("Redis<br/>rate limits · WebSocket tickets")]
+  end
+  UI -- "HTTPS /api · JWT" --> REST
+  YD <-- "WebSocket · Yjs sync + awareness" --> ROOMS
+  REST --> PG
+  ROOMS -- "batched edits" --> PG
+  REST --> RD
+  ROOMS --> RD
+```
 
 ## Stack
 
