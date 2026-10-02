@@ -140,12 +140,13 @@ class Connection:
 
 
 class Room:
-    """The live, in-memory state of one open document and everyone connected to it.
+    """The live, in-memory state of one open stream (a document's main text, or one of its
+    branches) and everyone connected to it.
 
-    The server relays and stores updates but never edits text itself (restoring a version is an
-    ordinary edit made by the browser, ADR 0014). If it ever does (merging a branch), note that
-    pycrdt indexes text in UTF-8 bytes while browser Yjs uses UTF-16 code units: positions must
-    be converted, not copied.
+    The server relays and stores updates but never edits text by position: restoring a version
+    is an edit made by the browser (ADR 0014), and merging a branch applies the branch's own CRDT
+    operations (ADR 0016). If it ever does, note that pycrdt indexes text in UTF-8 bytes while
+    browser Yjs uses UTF-16 code units: positions must be converted, not copied.
     """
 
     def __init__(
@@ -158,9 +159,14 @@ class Room:
         flush_max_updates: int,
         compaction_threshold: int,
         version_interval: float,
+        branch_id: uuid.UUID | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.document_id = document_id
+        # None for the document's main text; otherwise this room edits one of its branches.
+        self.branch_id = branch_id
+        # While set, edits are not accepted: a merge is checking and taking this branch's state.
+        self.frozen = False
         self.doc: Doc[Any] = Doc()
         if stored.updates:
             # Merged into one update, never replayed one by one: pycrdt/yrs 0.27 can drop an update
@@ -188,6 +194,11 @@ class Room:
         self._last_version_at = clock()
         self._compacting: asyncio.Task[None] | None = None
         self._versioning: asyncio.Task[None] | None = None
+
+    @property
+    def stream_id(self) -> uuid.UUID:
+        """What the room manager keys rooms by: the branch, or the document for main."""
+        return self.branch_id or self.document_id
 
     # ----- membership -------------------------------------------------------------------------
 
@@ -250,10 +261,11 @@ class Room:
             raise ProtocolError(f"unknown sync step {step}")
         if payload == EMPTY_UPDATE:
             return
-        if not connection.can_edit:
+        if not connection.can_edit or self.frozen:
             # Viewers and commenters may read but not change the text. Their client is
             # read-only, so this only happens with a modified client or stale offline edits.
-            log.info("ignored edit from read-only connection", document_id=str(self.document_id))
+            # A frozen branch is being merged; the merge ends by making it read-only.
+            log.info("ignored edit from read-only connection", stream_id=str(self.stream_id))
             return
         try:
             self.doc.apply_update(payload)
@@ -303,6 +315,15 @@ class Room:
         state["user"] = {**user, "id": str(connection.user_id), "name": connection.user_name}
         return json.dumps(state, separators=(",", ":"))
 
+    def apply_server_update(self, update: bytes, user_id: uuid.UUID | None) -> None:
+        """An edit made by the server on someone's behalf (a merge, or taking main's changes
+        into a branch): applied, sent to everyone connected, and saved like any edit."""
+        if update == EMPTY_UPDATE:
+            return
+        self.doc.apply_update(update)
+        self.broadcast(sync_update_message(update))
+        self._queue_save(PendingUpdate(update, user_id))
+
     # ----- outgoing ---------------------------------------------------------------------------
 
     def broadcast(self, message: bytes, exclude: Connection | None = None) -> None:
@@ -310,7 +331,7 @@ class Room:
             if connection is exclude:
                 continue
             if not connection.send(message):
-                log.warning("dropping slow connection", document_id=str(self.document_id))
+                log.warning("dropping slow connection", stream_id=str(self.stream_id))
                 self._spawn(connection.close(CloseCode.TOO_SLOW, "Connection too slow"))
 
     # ----- persistence ------------------------------------------------------------------------
@@ -333,11 +354,11 @@ class Room:
             if not batch:
                 return
             try:
-                await self._store.append(self.document_id, batch)
+                await self._store.append(self.document_id, batch, self.branch_id)
             except Exception:
                 # Keep the edits and retry. Connected clients also still hold them and would
                 # re-send them on reconnect, so a failed write does not lose work by itself.
-                log.exception("saving edits failed, will retry", document_id=str(self.document_id))
+                log.exception("saving edits failed, will retry", stream_id=str(self.stream_id))
                 self._pending = batch + self._pending
                 if self._timer is None:
                     self._timer = self._spawn(self._flush_later(SAVE_RETRY_SECONDS))
@@ -369,7 +390,7 @@ class Room:
         # Compaction only ever folds rows already saved, so it is safe even then.
         if self._log_rows:
             await self._compact()
-        if self._unversioned:
+        if self._unversioned and self.branch_id is None:  # versions are main's
             await self._save_auto_version()
 
     # ----- housekeeping -----------------------------------------------------------------------
@@ -380,16 +401,16 @@ class Room:
         if self._log_rows >= self._compaction_threshold and self._compacting is None:
             self._compacting = self._spawn(self._compact())
         due = self._clock() - self._last_version_at >= self._version_interval
-        if self._unversioned and due and self._versioning is None:
+        if self.branch_id is None and self._unversioned and due and self._versioning is None:
             self._versioning = self._spawn(self._save_auto_version())
 
     async def _compact(self) -> None:
         try:
-            folded = await self._store.compact(self.document_id)
+            folded = await self._store.compact(self.document_id, self.branch_id)
             if folded:
                 self._log_rows = max(0, self._log_rows - folded)
         except Exception:
-            log.exception("compaction failed", document_id=str(self.document_id))
+            log.exception("compaction failed", stream_id=str(self.stream_id))
         finally:
             self._compacting = None
 

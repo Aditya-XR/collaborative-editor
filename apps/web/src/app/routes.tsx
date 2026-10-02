@@ -34,6 +34,18 @@ export const routes: RouteObject[] = [
               Component: (await import('../features/editor/EditorPage')).EditorPage,
             }),
           },
+          {
+            path: '/d/:documentId/b/:branchId',
+            lazy: async () => ({
+              Component: (await import('../features/branches/BranchPage')).BranchPage,
+            }),
+          },
+          {
+            path: '/d/:documentId/b/:branchId/review',
+            lazy: async () => ({
+              Component: (await import('../features/branches/ReviewPage')).ReviewPage,
+            }),
+          },
         ],
       },
       { path: '*', element: <NotFoundPage /> },

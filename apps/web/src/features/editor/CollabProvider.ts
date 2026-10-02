@@ -83,8 +83,9 @@ const MAX_BACKOFF_MS = 30_000
  * connection attempt and acts on the server's close codes.
  */
 export class CollabProvider {
+  /** The stream this provider syncs: a document's id, or a branch's. Deps resolve it. */
   readonly documentId: string
-  /** The guid is the document id, which also names the offline copy. */
+  /** The guid is that id, which also names the offline copy. */
   readonly doc: Y.Doc
   readonly awareness: awarenessProtocol.Awareness
 

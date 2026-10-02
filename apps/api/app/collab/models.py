@@ -10,17 +10,29 @@ from app.core.db import Base
 
 
 class DocumentUpdate(Base):
-    """Append-only log of Yjs updates since the document's compaction snapshot.
+    """Append-only log of Yjs updates since the compaction snapshot of one stream: a document's
+    main text (branch_id null) or one of its branches.
 
-    A document's state is that snapshot plus every row here, merged. Compaction folds rows into
+    A stream's state is that snapshot plus every row here, merged. Compaction folds rows into
     the snapshot and deletes them (ADR 0003).
     """
 
     __tablename__ = "document_updates"
-    __table_args__ = (Index("ix_document_updates_document_id_id", "document_id", "id"),)
+    __table_args__ = (
+        Index("ix_document_updates_document_id_id", "document_id", "id"),
+        Index(
+            "ix_document_updates_branch_id_id",
+            "branch_id",
+            "id",
+            postgresql_where=text("branch_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("document_branches.id", ondelete="CASCADE")
+    )
     update: Mapped[bytes] = mapped_column(LargeBinary)
     # Who made the edit; kept for writing replay, survives the author deleting their account.
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -37,9 +49,16 @@ class SnapshotKind(StrEnum):
     NAMED = "named"
     # The state just before a version was restored, so a restore can itself be undone.
     PRE_RESTORE = "pre_restore"
+    # The state just before a branch was merged; its label is the branch's name.
+    PRE_MERGE = "pre_merge"
 
 
-VERSION_KINDS = (SnapshotKind.AUTO, SnapshotKind.NAMED, SnapshotKind.PRE_RESTORE)
+VERSION_KINDS = (
+    SnapshotKind.AUTO,
+    SnapshotKind.NAMED,
+    SnapshotKind.PRE_RESTORE,
+    SnapshotKind.PRE_MERGE,
+)
 
 
 class DocumentSnapshot(Base):
@@ -48,17 +67,27 @@ class DocumentSnapshot(Base):
     __tablename__ = "document_snapshots"
     __table_args__ = (
         Index("ix_document_snapshots_document_id_created_at", "document_id", "created_at"),
-        # Loading reads exactly one base; the database guarantees there is never a second.
+        # Loading reads exactly one base per stream; the database guarantees there is never a
+        # second. Versions belong to main only.
         Index(
             "uq_document_snapshots_compaction",
             "document_id",
             unique=True,
-            postgresql_where=text("kind = 'compaction'"),
+            postgresql_where=text("kind = 'compaction' AND branch_id IS NULL"),
+        ),
+        Index(
+            "uq_document_snapshots_branch_compaction",
+            "branch_id",
+            unique=True,
+            postgresql_where=text("kind = 'compaction' AND branch_id IS NOT NULL"),
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    branch_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("document_branches.id", ondelete="CASCADE")
+    )
     kind: Mapped[SnapshotKind] = mapped_column(
         SAEnum(
             SnapshotKind,

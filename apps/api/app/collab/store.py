@@ -4,7 +4,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from pycrdt import Doc, merge_updates
-from sqlalchemy import BigInteger, any_, bindparam, delete, func, insert, select, update
+from sqlalchemy import (
+    BigInteger,
+    ColumnElement,
+    any_,
+    bindparam,
+    delete,
+    func,
+    insert,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -44,21 +54,38 @@ def fold(updates: list[bytes]) -> Folded:
     one it depends on (ADR 0012), and compaction can fold such an edit before its predecessor's
     transaction commits. A merge keeps everything, whatever the order.
     """
-    merged = merge_updates(*updates) if updates else EMPTY_UPDATE
+    state = merged(updates)
     doc: Doc[Any] = Doc()
-    doc.apply_update(merged)
-    return Folded(merged, plain_text(doc))
+    doc.apply_update(state)
+    return Folded(state, plain_text(doc))
 
 
-def _lock_key(document_id: uuid.UUID) -> int:
+def _lock_key(stream_id: uuid.UUID) -> int:
     """A bigint for pg_try_advisory_xact_lock. The low 64 bits of a UUIDv7 are random, so two
-    documents almost never share a key, and if they do, one compaction just waits a turn."""
-    return int.from_bytes(document_id.bytes[8:], "big", signed=True)
+    streams almost never share a key, and if they do, one compaction just waits a turn."""
+    return int.from_bytes(stream_id.bytes[8:], "big", signed=True)
+
+
+def _in_stream(
+    model: type[DocumentUpdate] | type[DocumentSnapshot],
+    document_id: uuid.UUID,
+    branch_id: uuid.UUID | None,
+) -> ColumnElement[bool]:
+    """Rows of one stream: a document's main text, or one of its branches."""
+    if branch_id is None:
+        return (model.document_id == document_id) & model.branch_id.is_(None)
+    return model.branch_id == branch_id
+
+
+def merged(updates: list[bytes]) -> bytes:
+    """One update holding everything in the list, whatever its order (ADR 0012, pitfall 2)."""
+    return merge_updates(*updates) if updates else EMPTY_UPDATE
 
 
 class UpdateStore:
-    """A document's durable state in Postgres: an append-only log of Yjs updates on top of a
-    compaction snapshot (ADR 0003), plus the versions people see in the history."""
+    """Durable state in Postgres, per stream (a document's main text or one of its branches): an
+    append-only log of Yjs updates on top of a compaction snapshot (ADR 0003). Main also has the
+    versions people see in the history, and the text that search indexes."""
 
     def __init__(
         self, sessionmaker: async_sessionmaker[AsyncSession], *, auto_versions_kept: int = 50
@@ -66,64 +93,85 @@ class UpdateStore:
         self._sessionmaker = sessionmaker
         self._auto_versions_kept = auto_versions_kept
 
-    async def load(self, document_id: uuid.UUID) -> StoredDocument:
+    async def load(
+        self, document_id: uuid.UUID, branch_id: uuid.UUID | None = None
+    ) -> StoredDocument:
         async with self._sessionmaker() as session, session.begin():
             # Both reads see one snapshot of the database. Otherwise a compaction committing
             # between them could move rows into a base that was already read: lost edits.
             await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
             base = await session.scalar(
                 select(DocumentSnapshot.state).where(
-                    DocumentSnapshot.document_id == document_id,
+                    _in_stream(DocumentSnapshot, document_id, branch_id),
                     DocumentSnapshot.kind == SnapshotKind.COMPACTION,
                 )
             )
             rows = list(
                 await session.scalars(
                     select(DocumentUpdate.update)
-                    .where(DocumentUpdate.document_id == document_id)
+                    .where(_in_stream(DocumentUpdate, document_id, branch_id))
                     .order_by(DocumentUpdate.id)
                 )
             )
         return StoredDocument(([base] if base is not None else []) + rows, len(rows))
 
-    async def append(self, document_id: uuid.UUID, pending: list[PendingUpdate]) -> None:
+    async def state(self, document_id: uuid.UUID, branch_id: uuid.UUID | None = None) -> bytes:
+        """The stream's whole saved state as one update."""
+        return merged((await self.load(document_id, branch_id)).updates)
+
+    async def append(
+        self,
+        document_id: uuid.UUID,
+        pending: list[PendingUpdate],
+        branch_id: uuid.UUID | None = None,
+    ) -> None:
         if not pending:
             return
         async with self._sessionmaker() as session, session.begin():
             await session.execute(
                 insert(DocumentUpdate),
                 [
-                    {"document_id": document_id, "update": item.update, "user_id": item.user_id}
+                    {
+                        "document_id": document_id,
+                        "branch_id": branch_id,
+                        "update": item.update,
+                        "user_id": item.user_id,
+                    }
                     for item in pending
                 ],
             )
             # Content changed, so the dashboard's "Edited …" and ordering should move too.
-            await session.execute(
-                update(Document).where(Document.id == document_id).values(updated_at=func.now())
-            )
+            # Branch edits leave the branch's row alone: a merge holds that row locked while it
+            # saves the branch's last edits, which would otherwise wait on the merge itself.
+            if branch_id is None:
+                await session.execute(
+                    update(Document).where(Document.id == document_id).values(updated_at=func.now())
+                )
 
-    async def compact(self, document_id: uuid.UUID) -> int | None:
-        """Folds the log into the compaction snapshot and deletes the folded rows.
+    async def compact(
+        self, document_id: uuid.UUID, branch_id: uuid.UUID | None = None
+    ) -> int | None:
+        """Folds the stream's log into its compaction snapshot and deletes the folded rows.
 
         Returns how many rows were folded, or None if another instance is compacting this
-        document right now (it will have folded them, or the next attempt will).
+        stream right now (it will have folded them, or the next attempt will).
         """
         async with self._sessionmaker() as session, session.begin():
             locked = await session.scalar(
-                select(func.pg_try_advisory_xact_lock(_lock_key(document_id)))
+                select(func.pg_try_advisory_xact_lock(_lock_key(branch_id or document_id)))
             )
             if not locked:
                 return None
             base = await session.scalar(
                 select(DocumentSnapshot).where(
-                    DocumentSnapshot.document_id == document_id,
+                    _in_stream(DocumentSnapshot, document_id, branch_id),
                     DocumentSnapshot.kind == SnapshotKind.COMPACTION,
                 )
             )
             rows = (
                 await session.execute(
                     select(DocumentUpdate.id, DocumentUpdate.update)
-                    .where(DocumentUpdate.document_id == document_id)
+                    .where(_in_stream(DocumentUpdate, document_id, branch_id))
                     .order_by(DocumentUpdate.id)
                 )
             ).all()
@@ -137,6 +185,7 @@ class UpdateStore:
                     DocumentSnapshot(
                         id=uuid7(),
                         document_id=document_id,
+                        branch_id=branch_id,
                         kind=SnapshotKind.COMPACTION,
                         state=folded.state,
                     )
@@ -149,7 +198,8 @@ class UpdateStore:
             # in the log rather than be deleted unread.
             ids = bindparam("ids", [row.id for row in rows], type_=ARRAY(BigInteger))
             await session.execute(delete(DocumentUpdate).where(DocumentUpdate.id == any_(ids)))
-            await self._refresh_search_text(session, document_id, folded.text)
+            if branch_id is None:  # search covers main only
+                await self._refresh_search_text(session, document_id, folded.text)
         return len(rows)
 
     async def save_version(
@@ -181,9 +231,10 @@ class UpdateStore:
         return version
 
     async def _prune_unnamed_versions(self, session: AsyncSession, document_id: uuid.UUID) -> None:
-        """Keeps the newest automatic and pre-restore versions; named ones are never pruned."""
-        unnamed = (DocumentSnapshot.kind == SnapshotKind.AUTO) | (
-            DocumentSnapshot.kind == SnapshotKind.PRE_RESTORE
+        """Keeps the newest unnamed versions (automatic, pre-restore, pre-merge); named ones are
+        never pruned."""
+        unnamed = DocumentSnapshot.kind.in_(
+            (SnapshotKind.AUTO, SnapshotKind.PRE_RESTORE, SnapshotKind.PRE_MERGE)
         )
         keep = (
             select(DocumentSnapshot.id)

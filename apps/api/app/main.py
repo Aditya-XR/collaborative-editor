@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import me_router
 from app.auth.router import router as auth_router
+from app.branches.router import router as branches_router
 from app.collab.manager import RoomManager
 from app.collab.router import router as collab_router
 from app.collab.store import UpdateStore
@@ -84,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(collab_router, prefix="/api")
     app.include_router(sharing_router, prefix="/api")
     app.include_router(versions_router, prefix="/api")
+    app.include_router(branches_router, prefix="/api")
     return app
 
 

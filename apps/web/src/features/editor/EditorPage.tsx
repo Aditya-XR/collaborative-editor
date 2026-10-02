@@ -1,7 +1,7 @@
 import type { Content, Editor } from '@tiptap/react'
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '../../components/ui/Button'
-import { Link, useParams } from 'react-router'
+import { Link, useLocation, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
 import { describeError } from '../../lib/errors'
@@ -10,6 +10,7 @@ import { useAuth } from '../auth/useAuth'
 import type { DocumentSummary } from '../documents/api'
 import { useDocument, useRenameDocument } from '../documents/queries'
 import { AppHeader } from '../layout/AppHeader'
+import { BranchesDialog } from '../branches/BranchesDialog'
 import { ShareDialog } from '../sharing/ShareDialog'
 import { versionTitle, type Version } from '../versions/api'
 import { VersionHistory } from '../versions/VersionHistory'
@@ -53,6 +54,10 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   const canEdit = role === 'owner' || role === 'editor'
   const [sharing, setSharing] = useState(false)
   const [history, setHistory] = useState(false)
+  const [branching, setBranching] = useState(false)
+  const closeBranches = useCallback(() => setBranching(false), [])
+  // Set by the review page after a merge, to say what just happened.
+  const merged = (useLocation().state as { merged?: string } | null)?.merged
   // A ref, not state: nothing on the page re-renders when the editor instance changes.
   const editor = useRef<Editor | null>(null)
   const [restored, setRestored] = useState<string | null>(null)
@@ -81,6 +86,11 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
         <div className="flex items-center gap-4">
           <PresenceAvatars peers={state.peers} />
           <SyncStatus state={state} />
+          {state.status !== 'stopped' && (
+            <Button variant="secondary" onClick={() => setBranching(true)}>
+              Branches
+            </Button>
+          )}
           {state.status !== 'stopped' && canEdit && (
             <Button variant="secondary" onClick={() => setHistory(true)}>
               History
@@ -98,6 +108,15 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
             <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
               You have {role === 'commenter' ? 'comment' : 'view'} access. Changes by others appear
               live.
+            </p>
+          )}
+          {merged && !restored && (
+            <p
+              role="status"
+              className="rounded-lg bg-violet-50 px-4 py-2 text-sm text-violet-900 dark:bg-violet-950 dark:text-violet-100"
+            >
+              Merged “{merged}” into this document. The text from before is saved in version
+              history.
             </p>
           )}
           {restored && (
@@ -126,6 +145,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
           )}
         </>
       )}
+      {branching && <BranchesDialog documentId={document.id} role={role} onClose={closeBranches} />}
       {history && (
         <VersionHistory
           documentId={document.id}

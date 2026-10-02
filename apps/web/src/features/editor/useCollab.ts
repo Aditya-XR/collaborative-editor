@@ -13,14 +13,20 @@ import type { Role } from '../documents/api'
 import { colorFor } from './colors'
 import { CollabProvider, type CollabDeps, type CollabState } from './CollabProvider'
 
-export function collabDeps(userId: string): CollabDeps {
+/** What the provider needs to reach one stream: a document's main text, or one branch. */
+export function collabDeps(
+  userId: string,
+  documentId: string,
+  branchId: string | null,
+): CollabDeps {
   return {
-    getTicket: (documentId) =>
+    getTicket: () =>
       api<{ ticket: string; role: Role }>('/collab/tickets', {
         method: 'POST',
-        body: { document_id: documentId },
+        body: { document_id: documentId, branch_id: branchId },
       }),
-    socketUrl: (documentId, ticket) =>
+    // The ticket says which branch, if any: the socket address is the document's either way.
+    socketUrl: (_stream, ticket) =>
       webSocketUrl(`/ws/docs/${documentId}?ticket=${encodeURIComponent(ticket)}`),
     openLocalStore: (doc) => {
       if (typeof indexedDB === 'undefined') return null
@@ -40,19 +46,21 @@ export function collabDeps(userId: string): CollabDeps {
 }
 
 /**
- * One live provider per open document and user. It is created during render and started by
- * the effect; because the provider can stop and restart, React's development double-mount
- * (start, stop, start) works without recreating anything.
+ * One live provider per open document (or branch, when `branchId` is given) and user. It is
+ * created during render and started by the effect; because the provider can stop and restart,
+ * React's development double-mount (start, stop, start) works without recreating anything.
  */
 export function useCollab(
   documentId: string,
   user: User,
-  createDeps: (userId: string) => CollabDeps = collabDeps,
+  branchId: string | null = null,
+  createDeps: typeof collabDeps = collabDeps,
 ): { provider: CollabProvider; state: CollabState } {
   const { id: userId, name: userName } = user
+  // A branch's id names its Yjs document, and so its own offline copy, apart from main's.
   const provider = useMemo(
-    () => new CollabProvider(documentId, createDeps(userId)),
-    [documentId, userId, createDeps],
+    () => new CollabProvider(branchId ?? documentId, createDeps(userId, documentId, branchId)),
+    [documentId, branchId, userId, createDeps],
   )
 
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/time'
 
-export type VersionKind = 'auto' | 'named' | 'pre_restore'
+export type VersionKind = 'auto' | 'named' | 'pre_restore' | 'pre_merge'
 
 export interface Version {
   id: string
@@ -34,6 +34,7 @@ export const versionsApi = {
 
 export function versionTitle(version: Version): string {
   if (version.kind === 'named' && version.label) return version.label
+  if (version.kind === 'pre_merge') return `Before merging “${version.label ?? 'a branch'}”`
   if (version.kind === 'pre_restore') {
     const source = version.restored_from
     if (!source) return 'Before a restore'

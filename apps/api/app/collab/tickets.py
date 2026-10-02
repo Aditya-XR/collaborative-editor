@@ -21,6 +21,8 @@ class TicketClaims:
     user_name: str
     document_id: uuid.UUID
     role: DocumentRole
+    # The branch to open, or None for the document's main text.
+    branch_id: uuid.UUID | None = None
 
 
 def _key(ticket: str) -> str:
@@ -34,6 +36,7 @@ async def issue_ticket(redis: Redis, claims: TicketClaims, ttl_seconds: int) -> 
         "user_name": claims.user_name,
         "document_id": str(claims.document_id),
         "role": claims.role.value,
+        "branch_id": str(claims.branch_id) if claims.branch_id else None,
     }
     await redis.set(_key(ticket), json.dumps(payload), ex=ttl_seconds)
     return ticket
@@ -52,4 +55,5 @@ async def redeem_ticket(redis: Redis, ticket: str) -> TicketClaims | None:
         user_name=data["user_name"],
         document_id=uuid.UUID(data["document_id"]),
         role=DocumentRole(data["role"]),
+        branch_id=uuid.UUID(data["branch_id"]) if data.get("branch_id") else None,
     )

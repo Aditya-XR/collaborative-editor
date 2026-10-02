@@ -30,7 +30,7 @@ class VersionRef(BaseModel):
 
 class VersionOut(BaseModel):
     id: uuid.UUID
-    kind: Literal["auto", "named", "pre_restore"]
+    kind: Literal["auto", "named", "pre_restore", "pre_merge"]
     label: str | None
     created_at: datetime
     # Null for versions the server took by itself, or whose author deleted their account.

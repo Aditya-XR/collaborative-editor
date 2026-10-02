@@ -83,7 +83,26 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
   - [x] Scheduled ping keeps the free API awake 08:00–23:59 IST and lets it sleep overnight
 - [ ] **5 · Multi-instance Redis** (week 7)
 - [ ] **6 · Comments** (week 8)
-- [ ] **7 · Branches and merge requests** (weeks 9–10)
+- [x] **7 · Branches and merge requests** (weeks 9–10) ✅ 2026-10-02, built before 5 and 6
+  - [x] A branch is its own stream: its own edit log, compaction snapshot and live room, keyed by
+        branch id; fork copies main, and its starting state is the merge base
+  - [x] Review: diff3 over paragraphs between the merge base, main and the branch; added, removed,
+        changed and conflicting passages, and a preview of main after the merge
+  - [x] Merge: refuses conflicts and a branch changed since review; saves main as a "before
+        merging" version; applies the branch through main's live room, so everyone sees it at once
+  - [x] Update from main moves the merge base up, the way `git merge main` does, which is how a
+        conflict is settled; close abandons a branch; merged and closed branches are read-only
+  - [x] Commenters branch and propose; owners and editors merge; at most 10 open branches, branch
+        creation rate-limited; losing access or trashing the document disconnects branch editors
+  - [x] Web: Branches dialog, branch editor with actions, review page with change cards and preview
+  - [x] 199 API tests (a diff3 partition property, conflicts by edit and by deletion, review after
+        main moved on, stale review, permissions), 89 web tests; checked in a real browser: two
+        tabs, a clean merge, then a conflict settled by updating from main
+  - Found: `FOR UPDATE` on the branch row blocked the foreign-key checks of the branch's own edits
+    (KEY SHARE locks), so a merge waited on itself; the row is locked `FOR NO KEY UPDATE`
+- Also fixed 2026-10-02: search text backfilled for documents edited before search existed; the
+  GitHub keep-awake schedule proved unreliable (two runs in six hours), so an external cron now
+  does that job (docs/DEPLOY.md)
 - [ ] **8 · Google sign-in and email** (week 11)
 - [ ] **9 · Export, offline app, polish** (week 12)
 - [ ] **10 · AI assistant** (week 13)
@@ -105,3 +124,4 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0013](adr/0013-sharing-model.md) | Membership-only access, hashed share links, instant revocation |
 | [0014](adr/0014-versions-and-restore.md) | Versions as snapshots; restore as an ordinary edit made by the browser |
 | [0015](adr/0015-full-text-search.md) | Full-text search in Postgres, stemmed and as-typed prefixes |
+| [0016](adr/0016-branches-and-merge-requests.md) | Branches as separate streams; diff3 over paragraphs gates CRDT merges |

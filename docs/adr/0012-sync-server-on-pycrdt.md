@@ -40,8 +40,8 @@ Design points worth defending:
    stored log is loaded with `merge_updates`, which is immune to row order. A regression test
    skips itself once upstream fixes the behaviour.
 3. **Text positions are UTF-8 bytes**, while browser Yjs uses UTF-16 code units. The server never
-   edits text: version restores are made by the browser (ADR 0014), and branch merges (phase 7)
-   must convert positions.
+   edits text by position: version restores are made by the browser (ADR 0014), and branch
+   merges apply the branch's own CRDT operations (ADR 0016), so nothing needs converting yet.
 4. **Re-encoding a document drops updates that are still waiting.** An update whose predecessor
    has not arrived is kept pending inside the Doc, and `Doc.get_update()` leaves it out. Reference
    Yjs includes pending updates when encoding; yrs silently loses them. Folding "c, then delete a"

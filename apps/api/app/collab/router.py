@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from app.auth.deps import CurrentUser, limit_api_per_user
+from app.branches import service as branches
 from app.collab.manager import RoomManager
 from app.collab.protocol import ProtocolError
 from app.collab.room import CloseCode, Connection, Room, TokenBucket
@@ -25,6 +26,8 @@ router = APIRouter(tags=["collaboration"])
 
 class TicketRequest(BaseModel):
     document_id: uuid.UUID
+    # Open one of the document's branches instead of its main text.
+    branch_id: uuid.UUID | None = None
 
 
 class TicketOut(BaseModel):
@@ -51,9 +54,16 @@ async def create_ticket(
 ) -> TicketOut:
     """A single-use, 30-second credential for opening one document's WebSocket."""
     view = await documents.get_for(session, user, body.document_id)
-    claims = TicketClaims(user.id, user.name, body.document_id, view.role)
+    role = view.role
+    if body.branch_id is not None:
+        # On a branch, what counts is whether this person may edit that branch:
+        # commenters edit their own, and merged or closed branches are read-only.
+        branch = await branches.get_branch(session, view, body.branch_id)
+        can_edit = branches.permissions(view, branch, user.id).can_edit
+        role = DocumentRole.EDITOR if can_edit else DocumentRole.VIEWER
+    claims = TicketClaims(user.id, user.name, body.document_id, role, body.branch_id)
     ticket = await issue_ticket(request.app.state.redis, claims, settings.collab_ticket_ttl_seconds)
-    return TicketOut(ticket=ticket, expires_in=settings.collab_ticket_ttl_seconds, role=view.role)
+    return TicketOut(ticket=ticket, expires_in=settings.collab_ticket_ttl_seconds, role=role)
 
 
 @router.websocket("/ws/docs/{document_id}")
@@ -72,7 +82,7 @@ async def collaborate(websocket: WebSocket, document_id: uuid.UUID, ticket: str 
         await websocket.close(CloseCode.RATE_LIMITED, "Too many open connections")
         return
     try:
-        room = await rooms.acquire(document_id)
+        room = await rooms.acquire(document_id, claims.branch_id)
         connection = Connection(
             websocket,
             user_id=claims.user_id,

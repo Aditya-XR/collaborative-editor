@@ -104,15 +104,46 @@ class Peer:
 
         await self.edit(remove)
 
-    async def write_paragraphs(self, *paragraphs: str) -> None:
-        """Appends paragraphs the way the browser editor stores them: an XML tree under
-        Tiptap's root, rather than the flat test text above."""
+    @property
+    def body(self) -> XmlFragment:
+        """The document as the browser editor stores it: an XML tree under Tiptap's root,
+        rather than the flat test text above."""
+        body: XmlFragment = self.doc.get(EDITOR_ROOT, type=XmlFragment)
+        return body
+
+    def paragraphs(self) -> list[str]:
+        return [_text_of(block) for block in self.body.children]
+
+    async def edit_body(self, change: Callable[[XmlFragment], object]) -> None:
         before = self.doc.get_state()
-        body = self.doc.get(EDITOR_ROOT, type=XmlFragment)
-        for paragraph in paragraphs:
-            element = body.children.append(XmlElement("paragraph"))
-            element.children.append(XmlText(paragraph))
+        change(self.body)
         await self.ws.send_bytes(sync_update_message(self.doc.get_update(before)))
+
+    async def write_paragraphs(self, *paragraphs: str) -> None:
+        def append(body: XmlFragment) -> None:
+            for paragraph in paragraphs:
+                element = body.children.append(XmlElement("paragraph"))
+                element.children.append(XmlText(paragraph))
+
+        await self.edit_body(append)
+
+    async def append_to_paragraph(self, index: int, text: str) -> None:
+        """Types at the end of a paragraph (ASCII only: pycrdt counts UTF-8 bytes)."""
+
+        def type_text(body: XmlFragment) -> None:
+            block = list(body.children)[index]
+            assert isinstance(block, XmlElement)
+            run = next(iter(block.children))
+            assert isinstance(run, XmlText)
+            run.insert(len(str(run)), text)
+
+        await self.edit_body(type_text)
+
+    async def delete_paragraph(self, index: int) -> None:
+        def remove(body: XmlFragment) -> None:
+            del body.children[index]
+
+        await self.edit_body(remove)
 
     async def set_presence(self, state: dict[str, Any] | None) -> None:
         self._awareness_clock += 1
@@ -121,10 +152,20 @@ class Peer:
         await self.ws.send_bytes(awareness_message(encode_awareness([entry])))
 
 
-async def ticket_for(app: FastAPI, user: RegisteredUser, document_id: str) -> str:
+def _text_of(block: XmlText | XmlElement | XmlFragment) -> str:
+    if isinstance(block, XmlText):
+        return str(block)
+    return "".join(_text_of(child) for child in block.children)
+
+
+async def ticket_for(
+    app: FastAPI, user: RegisteredUser, document_id: str, branch_id: str | None = None
+) -> str:
     async with AsyncClient(transport=ASGIWebSocketTransport(app), base_url=BASE) as http:
         response = await http.post(
-            "/api/collab/tickets", json={"document_id": document_id}, headers=user.headers
+            "/api/collab/tickets",
+            json={"document_id": document_id, "branch_id": branch_id},
+            headers=user.headers,
         )
     assert response.status_code == 201, response.text
     ticket: str = response.json()["ticket"]
@@ -142,9 +183,15 @@ async def connect(app: FastAPI, document_id: str, ticket: str) -> AsyncIterator[
 
 @asynccontextmanager
 async def open_document(
-    app: FastAPI, user: RegisteredUser, document_id: str, *, sync: bool = True
+    app: FastAPI,
+    user: RegisteredUser,
+    document_id: str,
+    *,
+    sync: bool = True,
+    branch_id: str | None = None,
 ) -> AsyncIterator[Peer]:
-    async with connect(app, document_id, await ticket_for(app, user, document_id)) as peer:
+    ticket = await ticket_for(app, user, document_id, branch_id)
+    async with connect(app, document_id, ticket) as peer:
         if sync:
             await peer.sync()
         yield peer

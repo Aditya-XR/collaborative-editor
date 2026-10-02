@@ -52,8 +52,8 @@ async def test_search_text_is_backfilled_for_documents_edited_before_search(
             await conn.execute(text("TRUNCATE users, documents CASCADE"))
             await conn.execute(
                 text(
-                    "INSERT INTO users (id, email, name, password_hash)"
-                    " VALUES ('01900000-0000-7000-8000-000000000001', 'old@example.com', 'Old', 'x')"
+                    "INSERT INTO users (id, email, name, password_hash) VALUES"
+                    " ('01900000-0000-7000-8000-000000000001', 'old@example.com', 'Old', 'x')"
                 )
             )
             await conn.execute(
@@ -76,7 +76,7 @@ async def test_search_text_is_backfilled_for_documents_edited_before_search(
         await asyncio.to_thread(command.upgrade, config, "head")
 
         async with engine.connect() as conn:
-            rows = dict(
+            rows: dict[str, str] = dict(
                 (await conn.execute(text("SELECT title, search_text FROM documents"))).all()
             )
             await conn.execute(text("TRUNCATE users, documents CASCADE"))
