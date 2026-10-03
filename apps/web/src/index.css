@@ -72,3 +72,24 @@
   white-space: nowrap;
   user-select: none;
 }
+
+/* Passages with open comment threads (decorations from the comment highlights extension). */
+.comment-highlight {
+  background-color: rgb(253 230 138 / 0.55);
+  border-bottom: 2px solid rgb(245 158 11);
+  cursor: pointer;
+}
+
+.comment-highlight-active {
+  background-color: rgb(252 211 77 / 0.9);
+}
+
+@media (prefers-color-scheme: dark) {
+  .comment-highlight {
+    background-color: rgb(120 53 15 / 0.55);
+    border-bottom-color: rgb(217 119 6);
+  }
+  .comment-highlight-active {
+    background-color: rgb(146 64 14 / 0.9);
+  }
+}

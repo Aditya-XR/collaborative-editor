@@ -5,6 +5,8 @@ Every WebSocket message is binary and starts with a varuint message type:
     1  AWARENESS  cursors and presence; relayed, never stored
   120  HEARTBEAT  one byte from the client, echoed straight back (liveness through proxies
                   that swallow close frames; browsers cannot send WebSocket pings)
+  121  COMMENTS   server to client only, one byte: this stream's comments changed, fetch them
+                  again (the REST API stays the one source of comment data)
 """
 
 import json
@@ -15,6 +17,7 @@ from pycrdt import Decoder, YMessageType, YSyncMessageType, write_var_uint
 SYNC = int(YMessageType.SYNC)
 AWARENESS = int(YMessageType.AWARENESS)
 HEARTBEAT = 120
+COMMENTS = 121
 SYNC_STEP1 = int(YSyncMessageType.SYNC_STEP1)
 SYNC_STEP2 = int(YSyncMessageType.SYNC_STEP2)
 SYNC_UPDATE = int(YSyncMessageType.SYNC_UPDATE)

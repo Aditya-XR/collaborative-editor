@@ -10,6 +10,8 @@ const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
 /** One byte, echoed by the server; see the heartbeat comment below. */
 const MESSAGE_HEARTBEAT = 120
+/** One byte from the server: this stream's comments changed; fetch them again. */
+const MESSAGE_COMMENTS = 121
 
 /**
  * Some proxies (Render's edge, for one) do not forward the server's close frame: the socket stays
@@ -99,6 +101,7 @@ export class CollabProvider {
     peers: [],
   }
   private readonly listeners = new Set<() => void>()
+  private readonly commentListeners = new Set<() => void>()
   private socket: WebSocket | null = null
   private attempts = 0
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -174,6 +177,14 @@ export class CollabProvider {
   }
 
   getSnapshot = (): CollabState => this.state
+
+  /** Called when the server says the stream's comments changed. The signal carries no data: the
+   * REST API stays the one source of comments. Missed signals (while offline) are made up for by
+   * refetching after each sync. */
+  onCommentsChanged(listener: () => void): () => void {
+    this.commentListeners.add(listener)
+    return () => this.commentListeners.delete(listener)
+  }
 
   setUser(user: { name: string; color: string }): void {
     this.awareness.setLocalStateField('user', user)
@@ -327,6 +338,8 @@ export class CollabProvider {
         decoding.readVarUint8Array(decoder),
         this,
       )
+    } else if (type === MESSAGE_COMMENTS) {
+      for (const listener of this.commentListeners) listener()
     }
   }
 

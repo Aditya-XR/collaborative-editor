@@ -29,3 +29,10 @@ services:
         sync: false
       - key: FRONTEND_URL # the Vercel URL, e.g. https://collabedit.vercel.app
         sync: false
+      # Comment notification email (optional: without SMTP_HOST, emails are only logged).
+      - key: SMTP_HOST # smtp.gmail.com
+        sync: false
+      - key: SMTP_USERNAME # the Gmail address
+        sync: false
+      - key: SMTP_PASSWORD # a Gmail app password, not the account password
+        sync: false

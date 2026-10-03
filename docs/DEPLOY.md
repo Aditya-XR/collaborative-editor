@@ -67,6 +67,17 @@ but GitHub delays and drops frequent scheduled runs: on 2026-10-02 it fired twic
 to wake the API by hand before a demo (**Actions → Keep API awake → Run workflow**).
 GitHub also pauses scheduled workflows after 60 days without commits.
 
+### 7. Comment notification email (optional)
+Without it everything works, and the API logs the emails it would have sent. To send them through
+Gmail for free (up to ~500 a day):
+
+1. Turn on 2-Step Verification for the Google account, then create an **app password**
+   (Google Account → Security → App passwords).
+2. On Render, set `SMTP_HOST=smtp.gmail.com`, `SMTP_USERNAME=<the Gmail address>` and
+   `SMTP_PASSWORD=<the app password>`. The port defaults to 465 (TLS); `MAIL_FROM` defaults to the
+   username.
+3. Comment on a document someone else owns; the owner gets an email linking to the thread.
+
 ## Smoke test after deploying
 
 1. `/api/readyz` → `{"status":"ok"}` with both checks `ok`.

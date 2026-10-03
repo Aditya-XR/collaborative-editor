@@ -1,5 +1,5 @@
 import type { Content, Editor } from '@tiptap/react'
-import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useState, type KeyboardEvent } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Link, useLocation, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
@@ -11,6 +11,8 @@ import type { DocumentSummary } from '../documents/api'
 import { useDocument, useRenameDocument } from '../documents/queries'
 import { AppHeader } from '../layout/AppHeader'
 import { BranchesDialog } from '../branches/BranchesDialog'
+import { CommentsPanel } from '../comments/CommentsPanel'
+import { useComments } from '../comments/useComments'
 import { ShareDialog } from '../sharing/ShareDialog'
 import { versionTitle, type Version } from '../versions/api'
 import { VersionHistory } from '../versions/VersionHistory'
@@ -28,7 +30,7 @@ export function EditorPage() {
   return (
     <div className="min-h-dvh bg-slate-50 dark:bg-slate-950">
       <AppHeader />
-      <main className="mx-auto max-w-4xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-4 py-6">
         <Link to="/" className="text-sm text-indigo-600 dark:text-indigo-400">
           ← All documents
         </Link>
@@ -58,18 +60,23 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   const closeBranches = useCallback(() => setBranching(false), [])
   // Set by the review page after a merge, to say what just happened.
   const merged = (useLocation().state as { merged?: string } | null)?.merged
-  // A ref, not state: nothing on the page re-renders when the editor instance changes.
-  const editor = useRef<Editor | null>(null)
+  // State, not a ref: the comments panel works with the live editor once it exists.
+  const [editor, setEditor] = useState<Editor | null>(null)
   const [restored, setRestored] = useState<string | null>(null)
   const closeHistory = useCallback(() => setHistory(false), [])
-  const onEditorReady = useCallback((instance: Editor | null) => {
-    editor.current = instance
-  }, [])
+  const comments = useComments({
+    documentId: document.id,
+    branchId: null,
+    provider,
+    synced: state.synced,
+    editor,
+    canComment: role !== 'viewer',
+  })
 
   // A restore is an ordinary edit through the live editor (ADR 0014): it reaches everyone like
   // typing, merges with their concurrent edits, and Undo reverts it.
   function restoreVersion(content: Content, version: Version) {
-    editor.current?.commands.setContent(content)
+    editor?.commands.setContent(content)
     setHistory(false)
     setRestored(versionTitle(version))
   }
@@ -133,16 +140,20 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
               </Button>
             </p>
           )}
-          {state.localReady ? (
-            <CollaborativeEditor
-              provider={provider}
-              user={user}
-              editable={canEdit}
-              onReady={onEditorReady}
-            />
-          ) : (
-            <CenteredSpinner />
-          )}
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+            {state.localReady ? (
+              <CollaborativeEditor
+                provider={provider}
+                user={user}
+                editable={canEdit}
+                onReady={setEditor}
+                comments={comments.editorHandlers}
+              />
+            ) : (
+              <CenteredSpinner />
+            )}
+            <CommentsPanel controller={comments} />
+          </div>
         </>
       )}
       {branching && <BranchesDialog documentId={document.id} role={role} onClose={closeBranches} />}

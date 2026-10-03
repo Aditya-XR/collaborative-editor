@@ -123,6 +123,16 @@ class RoomManager:
         finally:
             await self.release(room)
 
+    def notify(self, stream_id: uuid.UUID, message: bytes) -> None:
+        """Sends a message to everyone connected to one stream, e.g. that its comments changed.
+
+        Only this instance's room is reached, like disconnect_user below; phase 5 fans it out over
+        Redis pub/sub.
+        """
+        room = self.rooms.get(stream_id)
+        if room is not None:
+            room.broadcast(message)
+
     def _rooms_of(self, document_id: uuid.UUID) -> list[Room]:
         return [room for room in self.rooms.values() if room.document_id == document_id]
 

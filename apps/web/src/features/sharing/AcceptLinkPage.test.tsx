@@ -6,14 +6,24 @@ import { renderApp } from '../../test/renderApp'
 import { server } from '../../test/server'
 import { CollabProvider } from '../editor/CollabProvider'
 
-// Once accepted, the page opens the editor; its live connection is not under test here.
+// Once accepted, the page opens the editor; its live connection is not under test here. Like the
+// real hook, one provider per document, kept across renders.
+const providers = new Map<string, CollabProvider>()
+
 vi.mock('../editor/useCollab', () => ({
   useCollab: (documentId: string) => ({
-    provider: new CollabProvider(documentId, {
-      getTicket: async () => ({ ticket: 't', role: 'editor' }),
-      socketUrl: () => 'ws://unused',
-      openLocalStore: () => null,
-    }),
+    provider:
+      providers.get(documentId) ??
+      providers
+        .set(
+          documentId,
+          new CollabProvider(documentId, {
+            getTicket: async () => ({ ticket: 't', role: 'editor' }),
+            socketUrl: () => 'ws://unused',
+            openLocalStore: () => null,
+          }),
+        )
+        .get(documentId)!,
     state: {
       status: 'online',
       synced: true,

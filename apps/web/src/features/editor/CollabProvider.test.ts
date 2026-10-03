@@ -286,6 +286,22 @@ describe('CollabProvider', () => {
     provider.stop()
   })
 
+  it('tells comment listeners when the server says comments changed', async () => {
+    const { provider } = setup()
+    const heard = vi.fn()
+    const unsubscribe = provider.onCommentsChanged(heard)
+    provider.start()
+    await flush()
+    lastSocket().open()
+
+    lastSocket().deliver(new Uint8Array([121]))
+    unsubscribe()
+    lastSocket().deliver(new Uint8Array([121]))
+
+    expect(heard).toHaveBeenCalledTimes(1)
+    provider.stop()
+  })
+
   it('sends a heartbeat every 15 seconds while connected', async () => {
     const { provider } = setup()
     provider.start()

@@ -4,6 +4,11 @@ import { EditorContent, useEditor, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useEffect } from 'react'
 import type { User } from '../auth/session'
+import {
+  CommentHighlights,
+  setCommentHandlers,
+  type CommentHandlers,
+} from '../comments/CommentHighlights'
 import { colorFor } from './colors'
 import type { CollabProvider } from './CollabProvider'
 import { Toolbar } from './Toolbar'
@@ -13,12 +18,15 @@ export function CollaborativeEditor({
   user,
   editable,
   onReady,
+  comments,
 }: {
   provider: CollabProvider
   user: User
   editable: boolean
   /** Hands the live editor to the page, which restores versions through it. */
   onReady?: (editor: Editor | null) => void
+  /** What a click on a commented passage, and the comment shortcut, do. */
+  comments?: CommentHandlers
 }) {
   const editor = useEditor(
     {
@@ -31,6 +39,7 @@ export function CollaborativeEditor({
           provider,
           user: { name: user.name, color: colorFor(user.id) },
         }),
+        CommentHighlights,
       ],
       editable,
       editorProps: {
@@ -50,6 +59,10 @@ export function CollaborativeEditor({
   useEffect(() => {
     editor?.setEditable(editable)
   }, [editor, editable])
+
+  useEffect(() => {
+    if (editor && comments) setCommentHandlers(editor, comments)
+  })
 
   useEffect(() => {
     onReady?.(editor)

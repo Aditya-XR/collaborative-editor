@@ -81,8 +81,26 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
         live editing between two accounts (~110 ms), presence, persistence, revocation
   - Found in production: Render's edge drops WebSocket close frames; client heartbeat added
   - [x] Scheduled ping keeps the free API awake 08:00–23:59 IST and lets it sleep overnight
-- [ ] **5 · Multi-instance Redis** (week 7)
-- [ ] **6 · Comments** (week 8)
+- [ ] **5 · Multi-instance Redis** (week 7): also fans out the comment signal (ADR 0017)
+- [x] **6 · Comments** (week 8) ✅ 2026-10-03, built before 5
+  - [x] Threads anchored to a selection with Yjs relative positions, stored beside the text rather
+        than in it, so commenters can comment without edit rights and a thread stays on its words
+        through local, remote and offline edits (ADR 0017)
+  - [x] Replies, edit (author), delete (author, or an editor or owner), resolve and reopen; a reply
+        reopens a resolved thread; deleting the first comment deletes the thread
+  - [x] Live: the server sends a one-byte "comments changed" signal over the document's socket and
+        clients refetch; a reconnect refetches whatever was missed
+  - [x] Email: a new thread notifies the owner, a reply notifies the thread's participants, never
+        the author and only current members; SMTP (Gmail app password) or log-only (DEPLOY.md)
+  - [x] Comments on branches belong to the branch; merged and closed branches are read-only
+  - [x] Web: comments panel beside the editor, highlights drawn as decorations, Ctrl+Alt+M,
+        open/resolved lists, notification links open their thread
+  - [x] 230 API tests (permissions, moderation, live signals, emails, caps, rate limit), 104 web
+        tests (anchors through local and remote edits; a test fails if local edits are not
+        mapped); checked in two real browsers: 11/11, highlight stays on its words for both
+  - Found: ProseMirror applies a local edit before Yjs sees it, so resolving anchors then reads
+    stale text; local edits map the known ranges instead (ADR 0017). A read-only editor takes no
+    keyboard input, so the shortcut listens on the window
 - [x] **7 · Branches and merge requests** (weeks 9–10) ✅ 2026-10-02, built before 5 and 6
   - [x] A branch is its own stream: its own edit log, compaction snapshot and live room, keyed by
         branch id; fork copies main, and its starting state is the merge base

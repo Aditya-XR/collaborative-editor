@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     versions_auto_interval_seconds: float = 600.0
     versions_auto_kept: int = 50
     versions_named_max: int = 100
+
+    # Email (comment notifications). Without SMTP_HOST, emails are logged instead of sent.
+    # Gmail: smtp.gmail.com, port 465, the account's address and an app password.
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    # The From address; defaults to SMTP_USERNAME.
+    mail_from: str = ""
 
     @property
     def is_production(self) -> bool:

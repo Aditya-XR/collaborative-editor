@@ -11,10 +11,10 @@ a live document, rework it on the side, and merge it back after review.
 
 ![Two people editing the same document: Rahul's caret and name appear live in Priya's window, with both avatars and "All changes synced" in the header](docs/screenshots/editor.png)
 
-> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–4
-> and 7 of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
-> compaction, version history, search, sharing, and branches with merge requests. Still to come:
-> comments, multi-instance Redis. The original MERN version is preserved under the
+> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–4,
+> 6 and 7 of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
+> compaction, version history, search, sharing, comments, and branches with merge requests. Still
+> to come: multi-instance Redis. The original MERN version is preserved under the
 > [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
 > The free API instance is kept awake 08:00–24:00 IST; outside those hours the first request can
@@ -36,6 +36,11 @@ a live document, rework it on the side, and merge it back after review.
   side deleted. So review runs a three-way diff (git's diff3, over paragraphs) and blocks the merge
   on conflicts; commenters can propose changes this way without edit rights
   ([ADR 0016](docs/adr/0016-branches-and-merge-requests.md)).
+- **Comments that stay on their words.** Threads are anchored with Yjs relative positions, kept
+  beside the text instead of in it, so commenters need no edit rights and a highlight follows its
+  passage through local, remote and offline edits. Changes reach open editors over the document's
+  socket; new comments email the people involved
+  ([ADR 0017](docs/adr/0017-comments.md)).
 - **Self-built rate limiter.** A token bucket in one Redis Lua script: atomic across API
   instances in a single round trip, failing open or closed per policy
   ([ADR 0005](docs/adr/0005-token-bucket-rate-limiter.md)).
@@ -44,8 +49,8 @@ a live document, rework it on the side, and merge it back after review.
   WebSocket tickets ([ADR 0006](docs/adr/0006-websocket-tickets.md)).
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 199 API tests against real Postgres and Redis — including Hypothesis properties for
-  CRDT convergence, compaction and diff3 — and 89 web tests, all run by GitHub Actions on every
+- **Tested.** 230 API tests against real Postgres and Redis — including Hypothesis properties for
+  CRDT convergence, compaction and diff3 — and 104 web tests, all run by GitHub Actions on every
   push.
 
 ## Architecture

@@ -11,10 +11,12 @@ from app.branches.router import router as branches_router
 from app.collab.manager import RoomManager
 from app.collab.router import router as collab_router
 from app.collab.store import UpdateStore
+from app.comments.router import router as comments_router
 from app.core.config import Settings, get_settings
 from app.core.db import create_engine, create_sessionmaker, ping_database
 from app.core.errors import register_error_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
+from app.core.mail import create_mailer
 from app.core.ratelimit.limiter import RateLimiter
 from app.core.redis import create_redis, ping_redis
 from app.documents.router import router as documents_router
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     store = UpdateStore(app.state.sessionmaker, auto_versions_kept=settings.versions_auto_kept)
     app.state.rooms = RoomManager(store, settings)
     app.state.redis = redis
+    app.state.mailer = create_mailer(settings)
     app.state.rate_limiter = RateLimiter(redis, enabled=settings.rate_limit_enabled)
     app.state.readiness_checks = {
         "database": lambda: ping_database(engine),
@@ -86,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sharing_router, prefix="/api")
     app.include_router(versions_router, prefix="/api")
     app.include_router(branches_router, prefix="/api")
+    app.include_router(comments_router, prefix="/api")
     return app
 
 

@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import type { Editor } from '@tiptap/react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
@@ -8,6 +9,8 @@ import { describeError } from '../../lib/errors'
 import { formatDateTime } from '../../lib/time'
 import type { User } from '../auth/session'
 import { useAuth } from '../auth/useAuth'
+import { CommentsPanel } from '../comments/CommentsPanel'
+import { useComments } from '../comments/useComments'
 import type { DocumentSummary } from '../documents/api'
 import { useDocument } from '../documents/queries'
 import { CollaborativeEditor } from '../editor/CollaborativeEditor'
@@ -28,7 +31,7 @@ export function BranchPage() {
   return (
     <div className="min-h-dvh bg-slate-50 dark:bg-slate-950">
       <AppHeader />
-      <main className="mx-auto max-w-4xl px-4 py-6">
+      <main className="mx-auto max-w-6xl px-4 py-6">
         <Link to={`/d/${documentId}`} className="text-sm text-indigo-600 dark:text-indigo-400">
           ← {document.data?.title ?? 'Document'}
         </Link>
@@ -66,6 +69,16 @@ function LiveBranch({
   const { provider, state } = useCollab(document.id, user, branch.id)
   // The ticket's role is the live answer (it changes when the branch is merged or closed).
   const editable = branch.can_edit && (state.role === 'owner' || state.role === 'editor')
+  const [editor, setEditor] = useState<Editor | null>(null)
+  // Anyone who may comment on the document may comment on its open branches.
+  const comments = useComments({
+    documentId: document.id,
+    branchId: branch.id,
+    provider,
+    synced: state.synced,
+    editor,
+    canComment: branch.status === 'open' && document.role !== 'viewer',
+  })
 
   // A merge or close elsewhere reconnects this editor with a read-only ticket; show why.
   useEffect(() => {
@@ -103,11 +116,22 @@ function LiveBranch({
 
       {state.status === 'stopped' ? (
         <Alert>This branch is no longer available.</Alert>
-      ) : state.localReady ? (
-        <CollaborativeEditor provider={provider} user={user} editable={editable} />
       ) : (
-        <div className="flex justify-center py-12 text-indigo-600">
-          <Spinner />
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          {state.localReady ? (
+            <CollaborativeEditor
+              provider={provider}
+              user={user}
+              editable={editable}
+              onReady={setEditor}
+              comments={comments.editorHandlers}
+            />
+          ) : (
+            <div className="flex justify-center py-12 text-indigo-600">
+              <Spinner />
+            </div>
+          )}
+          <CommentsPanel controller={comments} />
         </div>
       )}
     </div>

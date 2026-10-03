@@ -22,6 +22,7 @@ from pycrdt import (
 
 from app.collab.protocol import (
     AWARENESS,
+    COMMENTS,
     SYNC,
     SYNC_STEP2,
     AwarenessEntry,
@@ -44,6 +45,8 @@ class Peer:
         self.text = self.doc.get("text", type=Text)
         self.awareness: dict[int, dict[str, Any] | None] = {}
         self._awareness_clock = 0
+        # How many times the server said this stream's comments changed.
+        self.comment_signals = 0
 
     # ----- receiving --------------------------------------------------------------------------
 
@@ -60,6 +63,8 @@ class Peer:
                 self.awareness[entry.client_id] = (
                     json.loads(entry.state) if entry.state is not None else None
                 )
+        elif message == bytes([COMMENTS]):
+            self.comment_signals += 1
 
     async def until(self, condition: Callable[[], bool], timeout: float = 3.0) -> None:
         async def loop() -> None:
