@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     # Render sets RENDER_GIT_COMMIT on every deploy; RELEASE works anywhere else.
     release: str = Field(default="", validation_alias=AliasChoices("release", "render_git_commit"))
 
-    database_url: str = "postgresql+asyncpg://collabedit:collabedit@localhost:5432/collabedit"
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql+asyncpg://collabedit:collabedit@localhost:5433/collabedit"
+    redis_url: str = "redis://localhost:6380/0"
 
     # Origin of the web app, used for CORS and for checking Origin on cookie endpoints.
     frontend_url: str = "http://localhost:5173"

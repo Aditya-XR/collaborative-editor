@@ -1,6 +1,8 @@
 # Local development stack.
 #   docker compose -f infra/docker-compose.yml up -d                  -> Postgres + Redis only
 #   docker compose -f infra/docker-compose.yml --profile full up -d   -> also the API container
+# Host ports are 5433 (Postgres) and 6380 (Redis), so this stack can run next to
+# another local Postgres/Redis on the default ports.
 name: collabedit
 
 services:
@@ -11,7 +13,7 @@ services:
       POSTGRES_PASSWORD: collabedit
       POSTGRES_DB: collabedit
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       # Postgres 18 keeps its data under /var/lib/postgresql/18/docker, so the volume mounts one
       # level up. A new volume name: the old Postgres 17 volume (pgdata) is left untouched.
@@ -25,7 +27,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - '6379:6379'
+      - '6380:6379'
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 2s

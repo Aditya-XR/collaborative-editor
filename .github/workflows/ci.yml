@@ -26,20 +26,20 @@ jobs:
           POSTGRES_USER: collabedit
           POSTGRES_PASSWORD: collabedit
           POSTGRES_DB: collabedit
-        ports: ['5432:5432']
+        ports: ['5433:5432']
         options: >-
           --health-cmd "pg_isready -U collabedit -d collabedit"
           --health-interval 2s --health-timeout 3s --health-retries 20
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
+        ports: ['6380:6379']
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 2s --health-timeout 3s --health-retries 20
     env:
       ENV: test
-      DATABASE_URL: postgresql+asyncpg://collabedit:collabedit@localhost:5432/collabedit
-      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql+asyncpg://collabedit:collabedit@localhost:5433/collabedit
+      REDIS_URL: redis://localhost:6380/0
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

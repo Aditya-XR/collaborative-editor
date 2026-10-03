@@ -19,9 +19,9 @@ from app.main import create_app
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://collabedit:collabedit@localhost:5432/collabedit_test",
+    "postgresql+asyncpg://collabedit:collabedit@localhost:5433/collabedit_test",
 )
-TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/15")
+TEST_REDIS_URL = os.environ.get("TEST_REDIS_URL", "redis://localhost:6380/15")
 API_ROOT = Path(__file__).resolve().parents[1]
 
 
