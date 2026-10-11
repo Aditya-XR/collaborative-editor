@@ -4,13 +4,14 @@ import time
 import uuid
 from collections.abc import Callable, Coroutine
 from enum import IntEnum
-from typing import Any
+from typing import Any, Protocol
 
 import anyio
 import structlog
 from pycrdt import Doc, create_sync_message, merge_updates, write_var_uint
 from starlette.websockets import WebSocket, WebSocketState
 
+from app.collab.bus import Kind, parts
 from app.collab.models import SnapshotKind
 from app.collab.protocol import (
     AWARENESS,
@@ -35,6 +36,18 @@ log = structlog.get_logger()
 
 MAX_AWARENESS_STATE_BYTES = 4096
 SAVE_RETRY_SECONDS = 2.0
+PUBLISH_RETRY_SECONDS = 1.0
+# Browsers drop a cursor not renewed for 30 seconds (y-protocols renews every 15); a cursor
+# relayed from another instance is not shown to newcomers after that either.
+REMOTE_AWARENESS_TTL = 30.0
+
+
+class StreamLink(Protocol):
+    """How a room reaches the same stream's rooms on other instances (RoomManager's bus)."""
+
+    async def publish(self, kind: Kind, payload: bytes) -> int | None:
+        """How many subscribers got it, this instance included; None if it was not sent."""
+        ...
 
 
 class CloseCode(IntEnum):
@@ -160,6 +173,8 @@ class Room:
         compaction_threshold: int,
         version_interval: float,
         branch_id: uuid.UUID | None = None,
+        link: StreamLink | None = None,
+        publish_interval: float = 0.05,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.document_id = document_id
@@ -167,6 +182,9 @@ class Room:
         self.branch_id = branch_id
         # While set, edits are not accepted: a merge is checking and taking this branch's state.
         self.frozen = False
+        # The same, set from another instance's merge. It lapses on its own, so a lost "resume"
+        # message can never leave a branch frozen for good.
+        self._frozen_until = 0.0
         self.doc: Doc[Any] = Doc()
         if stored.updates:
             # Merged into one update, never replayed one by one: pycrdt/yrs 0.27 can drop an update
@@ -194,11 +212,38 @@ class Room:
         self._last_version_at = clock()
         self._compacting: asyncio.Task[None] | None = None
         self._versioning: asyncio.Task[None] | None = None
+        # Other instances (ADR 0004): what this room still has to tell them, sent as one message
+        # per interval, and the cursors of people connected over there.
+        self._link = link
+        self._publish_interval = publish_interval
+        self._outbox_updates: list[bytes] = []
+        self._outbox_awareness: dict[int, AwarenessEntry] = {}
+        self._publisher: asyncio.Task[None] | None = None
+        self._publish_lock = asyncio.Lock()
+        self._remote_awareness: dict[int, tuple[AwarenessEntry, float]] = {}
+        # True while no other instance has this stream open: then edits are not published at
+        # all. Learnt from Redis, which says how many subscribers each message reached; a
+        # newcomer always says HELLO and gets everything it lacks in the reply.
+        self._alone = False
+        # Bumped whenever another instance speaks on the stream, so that a publish sent before
+        # that, whose count of receivers is out of date, cannot conclude the room is alone.
+        self.peer_epoch = 0
+        # Edits queued for other instances, and the messages that carried them.
+        self.updates_out = 0
+        self.publishes = 0
 
     @property
     def stream_id(self) -> uuid.UUID:
         """What the room manager keys rooms by: the branch, or the document for main."""
         return self.branch_id or self.document_id
+
+    @property
+    def accepting_edits(self) -> bool:
+        return not self.frozen and self._clock() >= self._frozen_until
+
+    def freeze_for(self, seconds: float) -> None:
+        """Another instance is merging this branch: refuse edits for up to this long; 0 resumes."""
+        self._frozen_until = self._clock() + seconds if seconds > 0 else 0.0
 
     # ----- membership -------------------------------------------------------------------------
 
@@ -207,8 +252,9 @@ class Room:
         connection.start()
         # Sync step 1: our state vector. The client answers with every update we lack.
         connection.send(create_sync_message(self.doc))
-        if self._awareness:
-            connection.send(awareness_message(encode_awareness(list(self._awareness.values()))))
+        cursors = list(self._awareness.values()) + self._fresh_remote_awareness()
+        if cursors:
+            connection.send(awareness_message(encode_awareness(cursors)))
 
     def leave(self, connection: Connection) -> None:
         self.connections.discard(connection)
@@ -221,11 +267,12 @@ class Room:
                 gone.append(AwarenessEntry(client_id, entry.clock + 1, None))
         if gone:
             self.broadcast(awareness_message(encode_awareness(gone)))
+            self._queue_publish(awareness=gone)
 
-    async def kick_all(self, code: CloseCode, reason: str) -> None:
+    async def kick_all(self, code: int, reason: str) -> None:
         await asyncio.gather(*(c.close(code, reason) for c in list(self.connections)))
 
-    async def kick_user(self, user_id: uuid.UUID, code: CloseCode, reason: str) -> int:
+    async def kick_user(self, user_id: uuid.UUID, code: int, reason: str) -> int:
         targets = [c for c in list(self.connections) if c.user_id == user_id]
         await asyncio.gather(*(c.close(code, reason) for c in targets))
         return len(targets)
@@ -261,7 +308,7 @@ class Room:
             raise ProtocolError(f"unknown sync step {step}")
         if payload == EMPTY_UPDATE:
             return
-        if not connection.can_edit or self.frozen:
+        if not connection.can_edit or not self.accepting_edits:
             # Viewers and commenters may read but not change the text. Their client is
             # read-only, so this only happens with a modified client or stale offline edits.
             # A frozen branch is being merged; the merge ends by making it read-only.
@@ -273,6 +320,7 @@ class Room:
             raise ProtocolError("invalid update") from exc
         self.broadcast(sync_update_message(payload), exclude=connection)
         self._queue_save(PendingUpdate(payload, connection.user_id))
+        self._queue_publish(update=payload)
 
     def _receive_awareness(self, connection: Connection, message: bytes) -> None:
         accepted = []
@@ -292,10 +340,13 @@ class Room:
             entry = AwarenessEntry(entry.client_id, entry.clock, self._stamp(connection, entry))
             self._awareness[entry.client_id] = entry
             self._awareness_owner[entry.client_id] = connection
+            # Someone who moved here from another instance: this connection speaks for them now.
+            self._remote_awareness.pop(entry.client_id, None)
             connection.awareness_ids.add(entry.client_id)
             accepted.append(entry)
         if accepted:
             self.broadcast(awareness_message(encode_awareness(accepted)), exclude=connection)
+            self._queue_publish(awareness=accepted)
 
     @staticmethod
     def _stamp(connection: Connection, entry: AwarenessEntry) -> str:
@@ -323,6 +374,131 @@ class Room:
         self.doc.apply_update(update)
         self.broadcast(sync_update_message(update))
         self._queue_save(PendingUpdate(update, user_id))
+        self._queue_publish(update=update)
+
+    # ----- other instances --------------------------------------------------------------------
+
+    def apply_remote_update(self, update: bytes) -> None:
+        """Edits another instance accepted (and saves): applied and relayed, never saved here."""
+        if not update or update == EMPTY_UPDATE:
+            return
+        try:
+            self.doc.apply_update(update)
+        except ValueError:
+            log.warning(
+                "ignored an invalid update from another instance", stream_id=str(self.stream_id)
+            )
+            return
+        self.broadcast(sync_update_message(update))
+
+    def apply_remote_awareness(self, update: bytes) -> None:
+        """Cursors of people connected to other instances, stamped with their real names over
+        there. A cursor owned by a connection here is never changed from outside."""
+        accepted = []
+        now = self._clock()
+        for entry in decode_awareness(update):
+            if entry.client_id in self._awareness_owner:
+                continue
+            current = self._remote_awareness.get(entry.client_id)
+            if current is not None and entry.clock <= current[0].clock:
+                continue
+            if entry.state is None:
+                self._remote_awareness.pop(entry.client_id, None)
+            else:
+                self._remote_awareness[entry.client_id] = (entry, now)
+            accepted.append(entry)
+        if accepted:
+            self.broadcast(awareness_message(encode_awareness(accepted)))
+
+    def local_awareness(self) -> bytes:
+        """The cursors of people connected here, for an instance that just opened this stream."""
+        return encode_awareness(list(self._awareness.values())) if self._awareness else b""
+
+    def _fresh_remote_awareness(self) -> list[AwarenessEntry]:
+        horizon = self._clock() - REMOTE_AWARENESS_TTL
+        stale = [cid for cid, (_, seen) in self._remote_awareness.items() if seen < horizon]
+        for client_id in stale:
+            del self._remote_awareness[client_id]
+        return [entry for entry, _ in self._remote_awareness.values()]
+
+    @property
+    def alone(self) -> bool:
+        return self._alone
+
+    def note_receivers(self, receivers: int | None, sent_at_epoch: int) -> None:
+        """Records how many subscribers a message on this stream reached (1 is only us)."""
+        if receivers is None:
+            return
+        if receivers > 1:
+            self._alone = False
+        elif sent_at_epoch == self.peer_epoch:
+            self._alone = True
+
+    def heard_from_peer(self) -> bool:
+        """Another instance spoke on this stream. True if this room believed it was alone, and
+        so may have kept edits to itself: the caller then syncs with the newcomer."""
+        self.peer_epoch += 1
+        was_alone, self._alone = self._alone, False
+        return was_alone
+
+    def _queue_publish(
+        self, *, update: bytes | None = None, awareness: list[AwarenessEntry] | None = None
+    ) -> None:
+        if self._link is None or self._alone:
+            return
+        if update is not None:
+            self._outbox_updates.append(update)
+            self.updates_out += 1
+        for entry in awareness or []:
+            self._outbox_awareness[entry.client_id] = entry  # only the newest state matters
+        if self._publisher is None:
+            self._publisher = self._spawn(self._publish_while_busy())
+
+    async def _publish_while_busy(self) -> None:
+        """A throttle with a leading edge: the first edit after a quiet spell goes out at once,
+        and while edits keep coming they go out together, at most once per interval. A lone
+        keystroke waits for nothing; a busy document costs one Redis command per interval."""
+        try:
+            while self._outbox_updates or self._outbox_awareness:
+                sent = await self.publish_now()
+                await asyncio.sleep(self._publish_interval if sent else PUBLISH_RETRY_SECONDS)
+        finally:
+            self._publisher = None
+
+    async def publish_now(self) -> bool:
+        """Sends everything queued for other instances as one message: one merged update and the
+        newest state of each cursor. Returns False, keeping it all queued, if Redis does not
+        take it: while their rooms stay open, other instances learn of these edits from nowhere
+        else."""
+        if self._link is None:
+            return True
+        async with self._publish_lock:
+            updates, self._outbox_updates = self._outbox_updates, []
+            cursors, self._outbox_awareness = self._outbox_awareness, {}
+            if not updates and not cursors:
+                return True
+            update = b""
+            if updates:
+                update = updates[0] if len(updates) == 1 else merge_updates(*updates)
+            cursor_bytes = encode_awareness(list(cursors.values())) if cursors else b""
+            epoch = self.peer_epoch
+            try:
+                receivers = await self._link.publish(Kind.BATCH, parts(update, cursor_bytes))
+            except BaseException:
+                self._requeue(update, cursors)  # cancelled mid-send: keep it for the next try
+                raise
+            if receivers is None:
+                self._requeue(update, cursors)
+                return False
+            self.publishes += 1
+            self.note_receivers(receivers, epoch)
+            return True
+
+    def _requeue(self, update: bytes, cursors: dict[int, AwarenessEntry]) -> None:
+        """Puts a batch back in front of anything queued meanwhile; newer cursor states win."""
+        if update:
+            self._outbox_updates.insert(0, update)
+        self._outbox_awareness = {**cursors, **self._outbox_awareness}
 
     # ----- outgoing ---------------------------------------------------------------------------
 
@@ -374,6 +550,16 @@ class Room:
         await self.flush()
         if self._timer is not None:
             self._timer.cancel()
+        # Other instances keep their rooms open, and learn of edits only from this one. One last
+        # try: if Redis is failing now, they reload from Postgres when their subscription comes
+        # back (ADR 0004).
+        if self._publisher is not None:
+            self._publisher.cancel()
+            await asyncio.gather(self._publisher, return_exceptions=True)
+        if not await self.publish_now():
+            log.warning(
+                "could not send the last edits to other instances", stream_id=str(self.stream_id)
+            )
         # Until none are left: a finishing flush can start a compaction or a version. Judged by
         # done(), not by membership: a finished task can linger in the set, and waiting for it
         # to leave turned this loop into a busy spin.

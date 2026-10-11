@@ -31,7 +31,7 @@ removal must take effect in editors that are already open.
 
 ## Consequences
 
-- Revocation is immediate for open editors on this instance. With several instances (phase 5)
-  the same disconnect request travels over Redis pub/sub.
+- Revocation is immediate for open editors on every instance: the disconnect request also goes
+  out over Redis pub/sub, and is retried if Redis refuses it (ADR 0004).
 - A viewer holding offline edits made before a demotion has them ignored on reconnect, which is
   the intended outcome for access that was withdrawn.

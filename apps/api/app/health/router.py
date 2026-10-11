@@ -27,10 +27,12 @@ class Readiness(BaseModel):
 async def healthz(request: Request) -> dict[str, str]:
     """Liveness: the process is up. Never touches dependencies.
 
-    Also names the commit running, so a deploy can be confirmed from outside.
+    Also names the commit running, so a deploy can be confirmed from outside, and the
+    instance that answered, so a load balancer's spread can be seen.
     """
     release: str = request.app.state.settings.release
-    return {"status": "ok", "release": release[:12] or "unknown"}
+    instance: str = request.app.state.instance_id.hex[:8]
+    return {"status": "ok", "release": release[:12] or "unknown", "instance": instance}
 
 
 @router.get("/readyz", response_model=Readiness)

@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     collab_idle_timeout_seconds: float = 150.0
     # The edit log is folded into the document's snapshot once it holds this many rows.
     collab_compaction_threshold: int = 500
+    # Edits and cursor moves bound for other API instances are sent as one Redis message per
+    # stream at most this often (ADR 0004).
+    collab_publish_interval_seconds: float = 0.05
+    # After the pub/sub connection drops, wait this long before reconnecting.
+    collab_bus_reconnect_seconds: float = 1.0
 
     # Version history: an automatic version at most this often while people edit, and one when
     # an editing session ends. The newest automatic versions are kept; named ones until unnamed.

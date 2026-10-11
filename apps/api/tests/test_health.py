@@ -7,11 +7,15 @@ from httpx import AsyncClient
 from app.core.config import Settings
 
 
-async def test_healthz_is_ok(client: AsyncClient) -> None:
+async def test_healthz_is_ok(app: FastAPI, client: AsyncClient) -> None:
     response = await client.get("/api/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "release": "unknown"}
+    assert response.json() == {
+        "status": "ok",
+        "release": "unknown",
+        "instance": app.state.instance_id.hex[:8],
+    }
 
 
 async def test_healthz_names_the_deployed_commit(settings: Settings) -> None:
@@ -25,7 +29,7 @@ async def test_healthz_names_the_deployed_commit(settings: Settings) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
         response = await client.get("/api/healthz")
 
-    assert response.json() == {"status": "ok", "release": "41421ad6c0ff"}
+    assert response.json()["release"] == "41421ad6c0ff"
 
 
 def test_render_sets_the_release(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,6 +47,7 @@ async def test_readyz_ok_when_all_dependencies_answer(client: AsyncClient) -> No
         "checks": {
             "database": {"status": "ok", "detail": None},
             "redis": {"status": "ok", "detail": None},
+            "pubsub": {"status": "ok", "detail": None},
         },
     }
 

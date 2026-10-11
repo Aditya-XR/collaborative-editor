@@ -38,9 +38,9 @@ def _rooms(request: Request) -> RoomManager:
     return rooms
 
 
-def _announce(request: Request, where: service.Stream) -> None:
+async def _announce(request: Request, where: service.Stream) -> None:
     """Tells every open editor of the stream to fetch its comments again."""
-    _rooms(request).notify(where.id, CHANGED)
+    await _rooms(request).notify(where.id, CHANGED)
 
 
 def _mailer(request: Request) -> Mailer:
@@ -82,7 +82,7 @@ async def create_thread(
         quoted_text=body.quoted_text,
         body=body.body,
     )
-    _announce(request, where)
+    await _announce(request, where)
     emails = await service.notifications(
         session, where, thread, user, body.body, new_thread=True, frontend_url=settings.frontend_url
     )
@@ -103,7 +103,7 @@ async def update_thread(
     view = await documents.get_for(session, user, doc_id)
     where, thread = await service.thread_stream(session, view, thread_id)
     await service.set_resolved(session, where, thread, user.id, body.resolved)
-    _announce(request, where)
+    await _announce(request, where)
     return await service.describe(session, where, thread_id, user.id)
 
 
@@ -125,7 +125,7 @@ async def reply(
     view = await documents.get_for(session, user, doc_id)
     where, thread = await service.thread_stream(session, view, thread_id)
     await service.reply(session, where, thread, user, body.body)
-    _announce(request, where)
+    await _announce(request, where)
     emails = await service.notifications(
         session,
         where,
@@ -150,7 +150,7 @@ async def edit_comment(
 ) -> ThreadOut:
     view = await documents.get_for(session, user, doc_id)
     where, thread = await service.edit_comment(session, view, comment_id, user.id, body.body)
-    _announce(request, where)
+    await _announce(request, where)
     return await service.describe(session, where, thread.id, user.id)
 
 
@@ -165,4 +165,4 @@ async def delete_comment(
     """Deletes a comment; deleting a thread's first comment deletes the whole thread."""
     view = await documents.get_for(session, user, doc_id)
     where, _ = await service.delete_comment(session, view, comment_id, user.id)
-    _announce(request, where)
+    await _announce(request, where)

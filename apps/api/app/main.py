@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.auth.router import me_router
 from app.auth.router import router as auth_router
 from app.branches.router import router as branches_router
+from app.collab.bus import RedisBus
 from app.collab.manager import RoomManager
 from app.collab.router import router as collab_router
 from app.collab.store import UpdateStore
@@ -36,20 +38,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
     store = UpdateStore(app.state.sessionmaker, auto_versions_kept=settings.versions_auto_kept)
-    app.state.rooms = RoomManager(store, settings)
+    bus = RedisBus(
+        settings.redis_url,
+        redis,
+        instance_id=app.state.instance_id,
+        reconnect_delay=settings.collab_bus_reconnect_seconds,
+    )
+    app.state.rooms = RoomManager(store, settings, bus)
     app.state.redis = redis
     app.state.mailer = create_mailer(settings)
     app.state.rate_limiter = RateLimiter(redis, enabled=settings.rate_limit_enabled)
     app.state.readiness_checks = {
         "database": lambda: ping_database(engine),
         "redis": lambda: ping_redis(redis),
+        "pubsub": bus.check,
     }
-    log.info("startup", env=settings.env)
+    await bus.start()
+    log.info("startup", env=settings.env, instance=bus.instance_id.hex[:8])
     try:
         yield
     finally:
-        # Save open documents before the database connection goes away.
+        # Save open documents before the database connection goes away, and tell the other
+        # instances about their last edits before the bus closes.
         await app.state.rooms.shutdown()
+        await bus.stop()
         await redis.aclose()
         await engine.dispose()
         log.info("shutdown")
@@ -68,6 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     app.state.settings = settings
+    # Names this process among the API's instances (pub/sub sender id, /api/healthz).
+    app.state.instance_id = uuid.uuid4()
 
     app.add_middleware(
         CORSMiddleware,

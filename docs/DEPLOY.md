@@ -78,6 +78,18 @@ Gmail for free (up to ~500 a day):
    username.
 3. Comment on a document someone else owns; the owner gets an email linking to the thread.
 
+### 8. More than one instance (optional, paid plans)
+The API runs as any number of instances: they share live documents through Redis pub/sub
+(ADR 0004), and migrations take turns on a Postgres lock. Things to know before scaling:
+
+- **Redis connections:** each instance uses a small pool plus one subscriber connection. Redis
+  Cloud's free plan allows 30 connections.
+- **No sticky sessions needed:** any instance can redeem any WebSocket ticket.
+- **Readiness:** `/api/readyz` reports `pubsub`. An instance whose subscriber is down still
+  serves its own clients, and catches up when it reconnects.
+
+`docker compose --profile full` runs two instances behind nginx locally (README).
+
 ## Smoke test after deploying
 
 1. `/api/readyz` → `{"status":"ok"}` with both checks `ok`.

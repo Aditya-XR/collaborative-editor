@@ -81,7 +81,31 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
         live editing between two accounts (~110 ms), presence, persistence, revocation
   - Found in production: Render's edge drops WebSocket close frames; client heartbeat added
   - [x] Scheduled ping keeps the free API awake 08:00–23:59 IST and lets it sleep overnight
-- [ ] **5 · Multi-instance Redis** (week 7): also fans out the comment signal (ADR 0017)
+- [x] **5 · Multi-instance Redis** (week 7) ✅ 2026-10-11, built last of 5–7
+  - [x] A Redis channel per open document or branch, and a control channel for whole-document
+        events; binary messages with a version byte, so releases can overlap during a deploy
+  - [x] The receiving instance saves each edit; the others apply and relay it
+  - [x] Opening a room subscribes, then reads Postgres, then runs the Yjs sync handshake with
+        the other instances, so edits not saved yet are never missed
+  - [x] Edits and cursors published with a leading-edge throttle (at once, then at most every
+        50 ms); nothing published while an instance is alone with a document
+  - [x] Kicks after access changes, trashing, merges (with a cross-instance freeze) and the
+        comment signal reach every instance; retried if Redis refuses them
+  - [x] Own reconnect handling: a dropped subscription re-syncs from Postgres and its peers;
+        `/api/readyz` reports `pubsub`; the API starts with Redis down
+  - [x] Migrations take a Postgres advisory lock, so instances can start together
+  - [x] Docker Compose runs two instances behind nginx (round robin, no sticky sessions);
+        `infra/k6/run.sh` load-tests them, and CI runs it on every push
+  - [x] 248 API tests (17 run two instances: convergence over 5 seeds, a room opened later, a
+        dropped subscription, lost publishes, kicks, merges, presence); real browsers through
+        nginx on two instances: 7/7, including stopping one instance mid-edit (reconnected in
+        221 ms)
+  - Measured (ADR 0004): two instances, 100 editors: p50 1 ms, p95 17 ms; four busy documents,
+    80 editors: p50 4 ms, p95 48 ms, 80% fewer Redis commands than one per edit; about 60 KB per
+    open document
+  - Found: redis-py re-subscribes silently after a reconnect (messages lost unnoticed); a stale
+    receiver count could mark a room alone while a peer listened; a lost reply to HELLO stranded
+    a newcomer; the first migration lock rolled migrations back
 - [x] **6 · Comments** (week 8) ✅ 2026-10-03, built before 5
   - [x] Threads anchored to a selection with Yjs relative positions, stored beside the text rather
         than in it, so commenters can comment without edit rights and a thread stays on its words

@@ -11,10 +11,11 @@ a live document, rework it on the side, and merge it back after review.
 
 ![Two people editing the same document: Rahul's caret and name appear live in Priya's window, with both avatars and "All changes synced" in the header](docs/screenshots/editor.png)
 
-> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–4,
-> 6 and 7 of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
-> compaction, version history, search, sharing, comments, and branches with merge requests. Still
-> to come: multi-instance Redis. The original MERN version is preserved under the
+> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–7
+> of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
+> compaction, version history, search, sharing, comments, branches with merge requests, and
+> several API instances sharing live documents through Redis. Still to come: Google sign-in and
+> email, export and an installable offline app, an AI assistant, and hardening. The original MERN version is preserved under the
 > [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
 > The free API instance is kept awake 08:00–24:00 IST; outside those hours the first request can
@@ -41,6 +42,11 @@ a live document, rework it on the side, and merge it back after review.
   passage through local, remote and offline edits. Changes reach open editors over the document's
   socket; new comments email the people involved
   ([ADR 0017](docs/adr/0017-comments.md)).
+- **Scales out.** Any number of API instances serve one document together: rooms sync through
+  Redis pub/sub, run the Yjs handshake between servers when a room opens or a connection
+  returns, and publish nothing at all when an instance is alone with a document. Two instances
+  behind nginx, measured with k6: 99.9% of 910,000 edit deliveries in a minute, median 4 ms
+  ([ADR 0004](docs/adr/0004-redis-pubsub-between-instances.md)).
 - **Self-built rate limiter.** A token bucket in one Redis Lua script: atomic across API
   instances in a single round trip, failing open or closed per policy
   ([ADR 0005](docs/adr/0005-token-bucket-rate-limiter.md)).
@@ -49,9 +55,10 @@ a live document, rework it on the side, and merge it back after review.
   WebSocket tickets ([ADR 0006](docs/adr/0006-websocket-tickets.md)).
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 230 API tests against real Postgres and Redis — including Hypothesis properties for
-  CRDT convergence, compaction and diff3 — and 104 web tests, all run by GitHub Actions on every
-  push.
+- **Tested.** 248 API tests against real Postgres and Redis — including Hypothesis properties for
+  CRDT convergence, compaction and diff3, and two API instances in one process — and 104 web
+  tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
+  load-tests them with k6.
 
 ## Architecture
 
@@ -69,14 +76,14 @@ flowchart TB
   subgraph Data["Managed data"]
     direction LR
     PG[("PostgreSQL<br/>edit log + snapshots")]
-    RD[("Redis<br/>rate limits · WebSocket tickets")]
+    RD[("Redis<br/>rate limits · WebSocket tickets<br/>pub/sub between instances")]
   end
   UI -- "HTTPS /api · JWT" --> REST
   YD <-- "WebSocket · Yjs sync + awareness" --> ROOMS
   REST --> PG
   ROOMS -- "batched edits" --> PG
   REST --> RD
-  ROOMS --> RD
+  ROOMS <-- "edits · cursors · events" --> RD
 ```
 
 ## Stack
@@ -111,6 +118,14 @@ npm install
 npm run dev
 ```
 
+To run the API as two instances behind nginx instead of step 2 (on the same port, so step 3
+works unchanged), see edits cross between them, and stop one to watch editors move to the other:
+
+```bash
+docker compose -f infra/docker-compose.yml --profile full up -d --build
+curl -s localhost:8000/api/healthz   # repeat: "instance" alternates
+```
+
 Open http://localhost:5173, create an account, and create a document. Open it in a second
 window to watch edits and cursors sync live; stop the API to try offline editing. The dashboard footer
 shows the API's readiness: green when Postgres and Redis both answer.
@@ -142,11 +157,26 @@ uv run python -m benchmarks.load_document             # 10,000 keystrokes
 uv run python -m benchmarks.load_document --edits 50000
 ```
 
+Edit fan-out across instances, with k6 against two instances behind nginx (ADR 0004 has the
+full table):
+
+```bash
+infra/k6/run.sh                    # 20 documents x 5 editors, 60 s
+API_REPLICAS=1 infra/k6/run.sh     # the same on one instance
+DOCS=4 PER_DOC=20 EDIT_MS=100 infra/k6/run.sh   # four busy documents
+```
+
+| Load | Instances | p50 | p95 | Redis commands per edit |
+| --- | --- | --- | --- | --- |
+| 100 editors, 2 edits/s each | 1 | 1 ms | 1 ms | ≈ 0 (one per document opened) |
+| same | 2 | 1 ms | 17 ms | 0.89 |
+| 80 editors on 4 documents, 10 edits/s each | 2 | 4 ms | 48 ms | 0.20 |
+
 ## Layout
 
 ```text
 apps/api/     FastAPI service (app/core, app/<domain>, alembic, tests)
 apps/web/     React app (src/app, src/lib, src/features)
-infra/        docker-compose.yml for local Postgres and Redis
+infra/        docker-compose.yml (Postgres, Redis, API instances, nginx), k6 load test
 docs/         PLAN.md and architecture decision records (docs/adr)
 ```

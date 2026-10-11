@@ -1,6 +1,8 @@
 # Local development stack.
-#   docker compose -f infra/docker-compose.yml up -d                  -> Postgres + Redis only
-#   docker compose -f infra/docker-compose.yml --profile full up -d   -> also the API container
+#   docker compose -f infra/docker-compose.yml up -d                     -> Postgres + Redis only
+#   docker compose -f infra/docker-compose.yml --profile full up -d --build
+#       -> also two API instances behind nginx on http://localhost:8000, sharing Postgres and
+#          Redis (ADR 0004); `npm run dev` in apps/web uses it as is. API_REPLICAS=1 runs one.
 # Host ports are 5433 (Postgres) and 6380 (Redis), so this stack can run next to
 # another local Postgres/Redis on the default ports.
 name: collabedit
@@ -37,17 +39,41 @@ services:
   api:
     profiles: ['full']
     build: ../apps/api
+    deploy:
+      replicas: ${API_REPLICAS:-2}
     environment:
       ENV: development
       DATABASE_URL: postgresql+asyncpg://collabedit:collabedit@postgres:5432/collabedit
       REDIS_URL: redis://redis:6379/0
-      FRONTEND_URL: http://localhost:5173
-    ports:
-      - '8000:8000'
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      # The load test (infra/k6) turns these off, one user opening hundreds of sockets.
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      COLLAB_MAX_CONNECTIONS_PER_USER: ${COLLAB_MAX_CONNECTIONS_PER_USER:-10}
+      # Trust nginx's X-Forwarded-For (the cluster's only way in).
+      FORWARDED_ALLOW_IPS: '*'
+    # No host port: nginx is the way in, so the service can be scaled.
+    expose:
+      - '8000'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/healthz')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  nginx:
+    profiles: ['full']
+    image: nginx:1.29-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - '${API_PORT:-8000}:8080'
+    depends_on:
+      api:
         condition: service_healthy
 
 volumes:

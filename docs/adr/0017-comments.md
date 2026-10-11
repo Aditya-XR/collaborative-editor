@@ -73,8 +73,7 @@ email. At most 1,000 threads per stream and 200 comments per thread, checked bef
 - The server cannot tell where a thread is; only browsers can resolve anchors. Search over comment
   text, or an email that quotes the current text, would need the server to resolve them too
   (pycrdt has no relative-position API today).
-- The comment signal reaches only rooms on the same API instance until phase 5 adds Redis
-  pub/sub, the same as kicks after an access change.
+- The comment signal reaches every instance over Redis pub/sub (ADR 0004).
 - Email addresses are not verified until phase 8, so for now someone could make a document owned
   by an address they do not control and trigger mail to it. The per-user write limit bounds this.
   Phase 8 should send notifications only to verified addresses.

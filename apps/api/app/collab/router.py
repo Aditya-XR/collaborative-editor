@@ -92,6 +92,12 @@ async def collaborate(websocket: WebSocket, document_id: uuid.UUID, ticket: str 
             queue_size=settings.collab_send_queue_size,
         )
         room.join(connection)
+        log.info(
+            "collab connection opened",
+            stream_id=str(room.stream_id),
+            user_id=str(claims.user_id),
+            connections=len(room.connections),
+        )
         try:
             await _pump(websocket, room, connection, settings.collab_idle_timeout_seconds)
         finally:
@@ -104,6 +110,7 @@ async def collaborate(websocket: WebSocket, document_id: uuid.UUID, ticket: str 
                 room.leave(connection)
                 await rooms.release(room)
                 await connection.close(1000, "Bye")
+                log.info("collab connection closed", stream_id=str(room.stream_id))
     finally:
         rooms.release_connection(claims.user_id)
 

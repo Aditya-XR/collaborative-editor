@@ -103,7 +103,8 @@ table would only duplicate the branch's lifecycle.
   is frozen, its editors then reconnect read-only, and those keystrokes stay only in the author's
   browser.
 - **Rooms are found by stream id**, so revoking access or trashing a document disconnects its
-  branch rooms too. Like everything else, this reaches only this instance until phase 5.
+  branch rooms too, on every instance (ADR 0004). The freeze reaches other instances as well;
+  an edit already waiting in another instance's save buffer can still miss the merge.
 - **Found while building:**
   - The first version locked the branch row `FOR UPDATE`.
   - Every edit saved to that branch checks its foreign key with a `KEY SHARE` lock on that row,

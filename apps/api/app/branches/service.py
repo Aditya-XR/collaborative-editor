@@ -369,10 +369,10 @@ async def merge(
             raise _read_only(branch)
         raise ApiError(403, "insufficient_role", "Requires editor access")
 
-    # No edits to the branch from here on: what is checked is what gets merged.
-    room = rooms.rooms.get(branch.id)
-    if room is not None:
-        room.frozen = True
+    # No edits to the branch from here on, on any instance: what is checked is what gets
+    # merged. (An edit still waiting in another instance's save buffer can miss the merge and
+    # stays on the branch; ADR 0004.)
+    await rooms.set_frozen(branch.id, True)
     try:
         found = await comparison(session, rooms, branch)
         if found.head != head:
@@ -392,8 +392,7 @@ async def merge(
         own = await rooms.store.state(view.document.id, branch.id)
         await rooms.apply(view.document.id, None, _diff_against(own), user_id)
     except BaseException:
-        if room is not None:
-            room.frozen = False
+        await rooms.set_frozen(branch.id, False)
         raise
     branch.status = BranchStatus.MERGED
     branch.merged_by = user_id

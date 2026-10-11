@@ -5,7 +5,8 @@ from app.main import create_app
 
 
 async def test_lifespan_wires_real_checks_that_fail_without_services() -> None:
-    # Nothing listens on port 1, so both real checks must fail rather than hang.
+    # Nothing listens on port 1, so every real check must fail rather than hang, and the API must
+    # still start: the pub/sub reader keeps retrying in the background.
     settings = Settings(
         env="test",
         database_url="postgresql+asyncpg://nobody:nothing@127.0.0.1:1/none",
@@ -15,7 +16,7 @@ async def test_lifespan_wires_real_checks_that_fail_without_services() -> None:
     app = create_app(settings)
 
     async with app.router.lifespan_context(app):
-        assert set(app.state.readiness_checks) == {"database", "redis"}
+        assert set(app.state.readiness_checks) == {"database", "redis", "pubsub"}
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/api/readyz")
@@ -24,4 +25,5 @@ async def test_lifespan_wires_real_checks_that_fail_without_services() -> None:
     checks = response.json()["checks"]
     assert checks["database"]["status"] == "error"
     assert checks["redis"]["status"] == "error"
+    assert checks["pubsub"]["status"] == "error"
     assert "nothing" not in response.text

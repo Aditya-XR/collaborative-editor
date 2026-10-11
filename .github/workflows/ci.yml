@@ -62,12 +62,23 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/api/healthz && break; sleep 1; done
           curl -sf http://127.0.0.1:8000/api/readyz
 
-  api-image:
-    name: API Docker image
+  cluster:
+    # Builds the production image and runs it as two instances behind nginx, sharing Postgres
+    # and Redis, then a short k6 run: edits must cross instances within the latency threshold.
+    name: API image, two instances behind nginx (k6)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - run: docker build --tag collabedit-api:ci apps/api
+      - name: Load test
+        env:
+          DOCS: '4'
+          PER_DOC: '4'
+          DURATION: '20'
+        run: infra/k6/run.sh
+      - name: Logs
+        if: failure()
+        run: docker compose -f infra/docker-compose.yml --profile full logs --no-color | tail -300
 
   web:
     name: Web (lint, types, tests, build)

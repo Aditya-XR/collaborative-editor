@@ -1,12 +1,15 @@
 import asyncio
+import os
+import sys
 
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Connection
+from alembic.script import ScriptDirectory
+from sqlalchemy import Connection, text
 
 from app.core.db import Base, create_engine
-from tests.conftest import alembic_config
+from tests.conftest import API_ROOT, alembic_config
 
 
 async def test_models_and_migrations_agree(database_url: str) -> None:
@@ -31,6 +34,29 @@ async def test_migrations_downgrade_and_upgrade_cleanly(database_url: str) -> No
     # Alembic's env.py runs its own event loop, so drive it from a worker thread.
     await asyncio.to_thread(command.downgrade, config, "base")
     await asyncio.to_thread(command.upgrade, config, "head")
+
+
+async def test_instances_starting_together_migrate_one_at_a_time(database_url: str) -> None:
+    """Each container migrates as it starts; two starting at once must not both create the same
+    tables. Separate processes, as in production: Alembic's context is global to a process."""
+    await asyncio.to_thread(command.downgrade, alembic_config(database_url), "base")
+    env = {**os.environ, "DATABASE_URL": database_url}
+
+    async def migrate() -> int:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "alembic", "upgrade", "head", cwd=API_ROOT, env=env
+        )
+        return await process.wait()
+
+    assert list(await asyncio.gather(migrate(), migrate())) == [0, 0]
+    engine = create_engine(database_url)
+    try:
+        async with engine.connect() as conn:
+            current = await conn.scalar(text("SELECT version_num FROM alembic_version"))
+    finally:
+        await engine.dispose()
+    head = ScriptDirectory.from_config(alembic_config(database_url)).get_current_head()
+    assert current == head
 
 
 async def test_search_text_is_backfilled_for_documents_edited_before_search(
