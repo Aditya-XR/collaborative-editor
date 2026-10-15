@@ -2,14 +2,18 @@ import asyncio
 import os
 import sys
 
+import asyncpg
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, text
+from sqlalchemy.engine import make_url
 
 from app.core.db import Base, create_engine
 from tests.conftest import API_ROOT, alembic_config
+
+MIGRATION_LOCK = 0x636F6C6C6162  # as in alembic/env.py
 
 
 async def test_models_and_migrations_agree(database_url: str) -> None:
@@ -57,6 +61,38 @@ async def test_instances_starting_together_migrate_one_at_a_time(database_url: s
         await engine.dispose()
     head = ScriptDirectory.from_config(alembic_config(database_url)).get_current_head()
     assert current == head
+
+
+async def test_a_lock_left_behind_never_hangs_startup(database_url: str) -> None:
+    """A killed process's session can linger on the database server, holding the migration
+    lock. A restart with nothing to migrate goes ahead; one with migrations to run gives up
+    after a bounded wait instead of hanging."""
+    url = make_url(database_url)
+    holder = await asyncpg.connect(
+        user=url.username,
+        password=url.password,
+        host=url.host,
+        port=url.port,
+        database=url.database,
+    )
+    try:
+        await holder.execute("SELECT pg_advisory_lock($1)", MIGRATION_LOCK)
+        env = {**os.environ, "DATABASE_URL": database_url, "MIGRATION_LOCK_TIMEOUT": "1s"}
+
+        async def alembic(*args: str) -> int:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "alembic", *args, cwd=API_ROOT, env=env
+            )
+            return await asyncio.wait_for(process.wait(), timeout=30)
+
+        assert await alembic("upgrade", "head") == 0  # at head already: does not wait
+        await holder.execute("SELECT pg_advisory_unlock($1)", MIGRATION_LOCK)
+        await asyncio.to_thread(command.downgrade, alembic_config(database_url), "-1")
+        await holder.execute("SELECT pg_advisory_lock($1)", MIGRATION_LOCK)
+        assert await alembic("upgrade", "head") != 0  # has work, lock held: gives up
+    finally:
+        await holder.close()
+    await asyncio.to_thread(command.upgrade, alembic_config(database_url), "head")
 
 
 async def test_search_text_is_backfilled_for_documents_edited_before_search(
