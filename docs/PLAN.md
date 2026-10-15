@@ -145,7 +145,10 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
 - Also fixed 2026-10-02: search text backfilled for documents edited before search existed; the
   GitHub keep-awake schedule proved unreliable (two runs in six hours), so an external cron now
   does that job (docs/DEPLOY.md)
-- [ ] **8 · Google sign-in and email** (week 11)
+- Also fixed 2026-10-15: the API took 11 minutes to wake. A migration lock left by a killed
+  process's lingering database session can block startup; startup now skips the lock when the
+  schema is current and waits at most 60 s otherwise (`alembic/env.py`, tested)
+- [ ] **8 · Google sign-in and email** (week 11), in progress on the `phase-8` branch
 - [ ] **9 · Export, offline app, polish** (week 12)
 - [ ] **10 · AI assistant** (week 13)
 - [ ] **11 · Hardening and launch** (week 14) → **Gate 2: v2 release**

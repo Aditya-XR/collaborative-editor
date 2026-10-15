@@ -1,8 +1,8 @@
 # CollabEdit
 
 Real-time collaborative documents, in the spirit of Google Docs: live cursors, offline editing,
-version history, full-text search and link sharing — on a sync server, storage layer and auth
-system written from scratch. And something Google Docs lacks: Git-style branches, so you can fork
+comments, version history, full-text search and link sharing — on a sync server, storage layer and
+auth system written from scratch. And something Google Docs lacks: Git-style branches, so you can fork
 a live document, rework it on the side, and merge it back after review.
 
 [![CI](https://github.com/Aditya-XR/collaborative-editor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Aditya-XR/collaborative-editor/actions/workflows/ci.yml)
@@ -14,12 +14,13 @@ a live document, rework it on the side, and merge it back after review.
 > **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–7
 > of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
 > compaction, version history, search, sharing, comments, branches with merge requests, and
-> several API instances sharing live documents through Redis. Still to come: Google sign-in and
-> email, export and an installable offline app, an AI assistant, and hardening. The original MERN version is preserved under the
-> [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
+> several API instances sharing live documents through Redis. Phase 8 (Google sign-in, password
+> reset and verified email addresses) is in progress on the `phase-8` branch. After that: export
+> and an installable offline app, an AI assistant, and hardening. The original MERN version is
+> preserved under the [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
-> The free API instance is kept awake 08:00–24:00 IST; outside those hours the first request can
-> take up to a minute while it wakes.
+> The API runs on Render's free plan, which sleeps after about 15 idle minutes: the first request
+> after a quiet spell waits while it wakes, usually under a minute.
 
 ## Highlights
 
@@ -55,7 +56,7 @@ a live document, rework it on the side, and merge it back after review.
   WebSocket tickets ([ADR 0006](docs/adr/0006-websocket-tickets.md)).
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 248 API tests against real Postgres and Redis — including Hypothesis properties for
+- **Tested.** 249 API tests against real Postgres and Redis — including Hypothesis properties for
   CRDT convergence, compaction and diff3, and two API instances in one process — and 104 web
   tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
   load-tests them with k6.
@@ -70,20 +71,22 @@ flowchart TB
   end
   subgraph API["FastAPI on Render"]
     direction LR
-    REST["REST API<br/>auth · documents · sharing · versions · search"]
-    ROOMS["Sync rooms<br/>pycrdt, one per open document"]
+    REST["REST API<br/>auth · documents · sharing · comments<br/>versions · branches · search"]
+    ROOMS["Sync rooms<br/>pycrdt, one per open document or branch"]
   end
   subgraph Data["Managed data"]
     direction LR
     PG[("PostgreSQL<br/>edit log + snapshots")]
     RD[("Redis<br/>rate limits · WebSocket tickets<br/>pub/sub between instances")]
   end
+  MAIL["SMTP (optional)<br/>comment notifications"]
   UI -- "HTTPS /api · JWT" --> REST
   YD <-- "WebSocket · Yjs sync + awareness" --> ROOMS
   REST --> PG
   ROOMS -- "batched edits" --> PG
   REST --> RD
   ROOMS <-- "edits · cursors · events" --> RD
+  REST -.-> MAIL
 ```
 
 ## Stack
@@ -94,7 +97,8 @@ flowchart TB
 | Editing | Tiptap (ProseMirror) + Yjs in the browser, pycrdt sync server over WebSockets |
 | API | Python 3.13, FastAPI, SQLAlchemy 2 (async), Alembic |
 | Data | PostgreSQL, Redis |
-| Tooling | uv, ruff, mypy, pytest, oxlint, Prettier, Vitest, GitHub Actions, Docker Compose |
+| Hosting | Vercel (web), Render (API), Neon (Postgres), Redis Cloud |
+| Tooling | uv, ruff, mypy, pytest, oxlint, Prettier, Vitest, GitHub Actions, Docker Compose, nginx, k6 |
 
 ## Local development
 
@@ -127,8 +131,8 @@ curl -s localhost:8000/api/healthz   # repeat: "instance" alternates
 ```
 
 Open http://localhost:5173, create an account, and create a document. Open it in a second
-window to watch edits and cursors sync live; stop the API to try offline editing. The dashboard footer
-shows the API's readiness: green when Postgres and Redis both answer.
+window to watch edits and cursors sync live; stop the API to try offline editing. The dashboard
+footer shows the API's readiness: green when Postgres, Redis and the pub/sub connection all answer.
 
 ## Checks
 
@@ -141,6 +145,9 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy app tests && 
 
 # apps/web
 npm run lint && npm run typecheck && npm run format:check && npm test && npm run build
+
+# the production image as two instances behind nginx, load-tested (CI runs this too)
+DOCS=4 PER_DOC=4 DURATION=20 infra/k6/run.sh
 ```
 
 If CI's `npm ci` fails with `Missing: … from lock file`, the lockfile was written by an npm that
