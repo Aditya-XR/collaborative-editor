@@ -4,6 +4,11 @@ export interface User {
   id: string
   email: string
   name: string
+  /** The owner proved the address is theirs (an emailed link, a password reset, or Google). */
+  email_verified: boolean
+  /** False for accounts that only sign in with Google. */
+  has_password: boolean
+  avatar_url: string | null
 }
 
 export interface SessionResponse {
@@ -61,6 +66,13 @@ export class SessionManager implements TokenSource {
     this.accessToken = session.access_token
     this.currentUser = session.user
     this.schedule(session.expires_in)
+    this.emit()
+  }
+
+  /** The signed-in person changed on the server (their address was just verified). */
+  updateUser(user: User): void {
+    if (this.currentUser?.id !== user.id) return
+    this.currentUser = user
     this.emit()
   }
 

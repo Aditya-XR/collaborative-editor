@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
 from app.core.db import Base
+from app.core.mail import Email
 from app.main import create_app
 
 TEST_DATABASE_URL = os.environ.get(
@@ -121,6 +122,43 @@ class RegisteredUser:
     @property
     def headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.access_token}"}
+
+
+class Outbox:
+    """Stands in for the mailer: keeps what would have been sent."""
+
+    def __init__(self) -> None:
+        self.sent: list[Email] = []
+
+    async def send(self, email: Email) -> None:
+        self.sent.append(email)
+
+    def to(self, address: str) -> list[Email]:
+        return [email for email in self.sent if email.to == address]
+
+
+@pytest.fixture
+def outbox(app: FastAPI) -> Outbox:
+    box = Outbox()
+    app.state.mailer = box
+    return box
+
+
+async def mark_verified(app: FastAPI, *users: "RegisteredUser") -> None:
+    """As if each had clicked the link in their verification email."""
+    import uuid
+
+    from sqlalchemy import update
+
+    from app.auth.models import User
+
+    async with app.state.sessionmaker() as session:
+        await session.execute(
+            update(User)
+            .where(User.id.in_([uuid.UUID(user.id) for user in users]))
+            .values(email_verified_at=text("now()"))
+        )
+        await session.commit()
 
 
 async def register(

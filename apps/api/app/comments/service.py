@@ -316,7 +316,7 @@ async def notifications(
 ) -> list[Email]:
     """Emails about a new comment: to everyone who took part in the thread and, for a new
     thread, to the document's owner. Never to the author, and only to people who can still open
-    the document."""
+    the document, and whose address is verified."""
     document = where.view.document
     participants: set[Any] = set(
         await session.scalars(select(Comment.author_id).where(Comment.thread_id == thread.id))
@@ -331,7 +331,13 @@ async def notifications(
     recipients = await session.scalars(
         select(User.email)
         .join(DocumentMember, DocumentMember.user_id == User.id)
-        .where(DocumentMember.document_id == document.id, User.id.in_(participants))
+        .where(
+            DocumentMember.document_id == document.id,
+            User.id.in_(participants),
+            # Only addresses their owners proved: nobody can aim our email at someone else's
+            # inbox by registering with it (ADR 0018).
+            User.email_verified_at.is_not(None),
+        )
         .order_by(User.email)
     )
 

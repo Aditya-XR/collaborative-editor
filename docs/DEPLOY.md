@@ -67,16 +67,47 @@ but GitHub delays and drops frequent scheduled runs: on 2026-10-02 it fired twic
 to wake the API by hand before a demo (**Actions → Keep API awake → Run workflow**).
 GitHub also pauses scheduled workflows after 60 days without commits.
 
-### 7. Comment notification email (optional)
-Without it everything works, and the API logs the emails it would have sent. To send them through
-Gmail for free (up to ~500 a day):
+### 7. Email (recommended)
+Sign-up verification links, password resets and comment notifications are emailed. Without SMTP
+the API only logs that it would have sent them: nobody can verify an address or reset a password.
+To send through Gmail for free (up to ~500 a day):
 
 1. Turn on 2-Step Verification for the Google account, then create an **app password**
    (Google Account → Security → App passwords).
 2. On Render, set `SMTP_HOST=smtp.gmail.com`, `SMTP_USERNAME=<the Gmail address>` and
    `SMTP_PASSWORD=<the app password>`. The port defaults to 465 (TLS); `MAIL_FROM` defaults to the
    username.
-3. Comment on a document someone else owns; the owner gets an email linking to the thread.
+3. Register a new account: the verification email arrives within a minute (check spam the
+   first time).
+
+### 9. Sign in with Google (optional)
+Without it the Google button is hidden. With it (ADR 0018):
+
+1. <https://console.cloud.google.com> → project picker (top left) → **New project**, name it
+   `CollabEdit` → **Create**, and select it.
+2. Search bar: **OAuth consent screen** → **Get started**.
+   - **App information:** app name `CollabEdit`, user support email: your address.
+   - **Audience:** **External**.
+   - **Contact information:** your address. Agree to the policy → **Create**.
+3. **Data access** → **Add or remove scopes** → tick `openid`, `.../auth/userinfo.email` and
+   `.../auth/userinfo.profile` → **Update** → **Save**. These are non-sensitive: no review.
+4. **Audience** → under *Publishing status*, **Publish app** → **Confirm**, so any Google account can
+   sign in. (Left in *Testing*, only the accounts listed under *Test users* can.)
+5. **Clients** → **Create client**:
+   - **Application type:** Web application. **Name:** `CollabEdit web`.
+   - **Authorized redirect URIs**, both exactly:
+     `https://collaborative-editor-flax.vercel.app/api/auth/google/callback` and
+     `http://localhost:5173/api/auth/google/callback`.
+   - **Create**. The dialog shows the client ID and the **client secret, which Google never shows
+     again**: copy both, or **Download JSON**, now.
+6. Render → the API service → **Environment** → add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+   → **Save changes** (it redeploys).
+7. Check: <https://collabedit-api.onrender.com/api/auth/options> answers `{"google":true}`, and the
+   sign-in page shows **Continue with Google**.
+
+The redirect URI is always `FRONTEND_URL` + `/api/auth/google/callback`. If the Vercel address
+changes, add the new one in step 5. For local testing, put the same two variables in
+`apps/api/.env`.
 
 ### 8. More than one instance (optional, paid plans)
 The API runs as any number of instances: they share live documents through Redis pub/sub

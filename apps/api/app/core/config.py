@@ -81,9 +81,34 @@ class Settings(BaseSettings):
     # The From address; defaults to SMTP_USERNAME.
     mail_from: str = ""
 
+    # Google sign-in (ADR 0018). Off unless both are set. The redirect URI to register with
+    # Google is FRONTEND_URL + /api/auth/google/callback (see google_redirect_uri).
+    google_client_id: str = ""
+    google_client_secret: SecretStr = SecretStr("")
+    # Google's endpoints; tests and local end-to-end runs point these at a fake provider.
+    google_authorize_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    google_token_url: str = "https://oauth2.googleapis.com/token"  # noqa: S105  (a URL)
+    google_jwks_url: str = "https://www.googleapis.com/oauth2/v3/certs"
+    google_issuer: str = "https://accounts.google.com"
+
+    # Emailed links: a password reset is single use and short-lived; a verification link waits
+    # longer, since people verify when they get round to it.
+    password_reset_ttl_minutes: int = 30
+    email_verification_ttl_hours: int = 48
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret.get_secret_value())
+
+    @property
+    def google_redirect_uri(self) -> str:
+        # Through the web app's origin (Vercel rewrites /api to the API), so the session cookie
+        # set at the end of sign-in is first-party, like every other auth response's.
+        return f"{self.frontend_url}/api/auth/google/callback"
 
     @field_validator("database_url")
     @classmethod

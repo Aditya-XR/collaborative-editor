@@ -10,6 +10,8 @@ export interface AuthValue {
   signUp(registration: Registration): Promise<void>
   signOut(): Promise<void>
   signOutEverywhere(): Promise<void>
+  /** Shows a change the server made to the signed-in person (a verified address). */
+  updateUser(user: User): void
 }
 
 export const AuthContext = createContext<AuthValue | null>(null)

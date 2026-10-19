@@ -148,7 +148,22 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
 - Also fixed 2026-10-15: the API took 11 minutes to wake. A migration lock left by a killed
   process's lingering database session can block startup; startup now skips the lock when the
   schema is current and waits at most 60 s otherwise (`alembic/env.py`, tested)
-- [ ] **8 · Google sign-in and email** (week 11), in progress on the `phase-8` branch
+- [x] **8 · Google sign-in and email** (week 11) ✅ 2026-10-19
+  - [x] Sign in with Google: authorization code flow with PKCE, state bound to the browser by a
+        cookie, nonce, ID token checked against Google's keys; `openid email profile` only
+  - [x] Accounts matched by Google's subject id; a Google sign-in on an address someone
+        registered but never verified removes that password and its sessions (pre-hijacking)
+  - [x] Password reset by email: same answer for unknown addresses, single-use 30-minute links,
+        all sessions end; Google-only accounts can add a password this way
+  - [x] Email verification at sign-up, resend, banner; comment emails only to verified addresses
+  - [x] Tokens stored as SHA-256 and sent after `#`, out of server logs; dev logs show emails
+        so links can be followed, production never does
+  - [x] Web: Continue with Google, forgot / reset / verify pages, verification banner
+  - [x] 282 API tests (20 against a fake Google with a real RSA key that enforces PKCE), 115 web
+        tests; browser run against a local fake Google: 12/12 (Google sign-in and cancel,
+        sign-up and verify, reset)
+  - Found: building an HTTP client reads the whole CA bundle (half a second on Windows), so it is
+    made only when Google is configured
 - [ ] **9 · Export, offline app, polish** (week 12)
 - [ ] **10 · AI assistant** (week 13)
 - [ ] **11 · Hardening and launch** (week 14) → **Gate 2: v2 release**

@@ -26,10 +26,20 @@ class Mailer(Protocol):
 
 class LogMailer:
     """Used when no SMTP server is configured (development, or before email is set up): the
-    app works the same, and the log says what would have been sent."""
+    app works the same, and the log says what would have been sent.
+
+    Outside production the whole email is logged, so a developer can click its links. Never in
+    production: a reset link works like a password, and logs are read by more people.
+    """
+
+    def __init__(self, *, include_text: bool = False) -> None:
+        self._include_text = include_text
 
     async def send(self, email: Email) -> None:
-        log.info("email not sent: SMTP is not configured", to=email.to, subject=email.subject)
+        text = email.text if self._include_text else None
+        log.info(
+            "email not sent: SMTP is not configured", to=email.to, subject=email.subject, text=text
+        )
 
 
 class SmtpMailer:
@@ -74,7 +84,7 @@ class SmtpMailer:
 
 def create_mailer(settings: Settings) -> Mailer:
     if not settings.smtp_host:
-        return LogMailer()
+        return LogMailer(include_text=not settings.is_production)
     return SmtpMailer(
         settings.smtp_host,
         settings.smtp_port,

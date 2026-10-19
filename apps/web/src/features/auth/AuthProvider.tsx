@@ -56,6 +56,7 @@ export function AuthProvider({
         queryClient.clear()
         await wipeOfflineDatabases()
       },
+      updateUser: (next) => manager.updateUser(next),
     }),
     [manager, queryClient, status, user],
   )

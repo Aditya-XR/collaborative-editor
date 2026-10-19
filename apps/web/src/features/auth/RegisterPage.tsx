@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button'
 import { TextField } from '../../components/ui/TextField'
 import { describeError } from '../../lib/errors'
 import { AuthLayout } from './AuthLayout'
+import { GoogleSignIn } from './GoogleSignIn'
 import { useAuth } from './useAuth'
 
 const MIN_PASSWORD = 8
@@ -52,6 +53,7 @@ export function RegisterPage() {
     >
       <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
         {error && <Alert>{error}</Alert>}
+        <GoogleSignIn />
         <TextField
           label="Name"
           autoComplete="name"

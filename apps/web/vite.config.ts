@@ -19,6 +19,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // The first test in a file that opens a document imports the editor (ProseMirror, Tiptap,
+    // Yjs), which can take seconds on a busy machine: 5 s made healthy tests time out.
+    testTimeout: 15_000,
     setupFiles: ['./src/test/setup.ts'],
     unstubGlobals: true,
   },

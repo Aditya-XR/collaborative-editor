@@ -15,8 +15,9 @@ a live document, rework it on the side, and merge it back after review.
 > of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
 > compaction, version history, search, sharing, comments, branches with merge requests, and
 > several API instances sharing live documents through Redis. Phase 8 (Google sign-in, password
-> reset and verified email addresses) is in progress on the `phase-8` branch. After that: export
-> and an installable offline app, an AI assistant, and hardening. The original MERN version is
+> reset and verified email addresses) is built on the `phase-8` branch, waiting for Google
+> credentials before it goes live. After that: export and an installable offline app, an AI
+> assistant, and hardening. The original MERN version is
 > preserved under the [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
 > The API runs on Render's free plan, which sleeps after about 15 idle minutes: the first request
@@ -54,10 +55,15 @@ a live document, rework it on the side, and merge it back after review.
 - **Careful sessions.** Argon2id passwords, 15-minute JWTs, rotating refresh tokens with reuse
   detection ([ADR 0011](docs/adr/0011-sessions-and-refresh-rotation.md)), and one-time 30-second
   WebSocket tickets ([ADR 0006](docs/adr/0006-websocket-tickets.md)).
+- **Sign in with Google, done properly.** Authorization code flow with PKCE, browser-bound state
+  and nonce, ID tokens checked against Google's keys; accounts matched by Google's id, and an
+  address registered by someone who never proved it is cleaned before Google links it
+  (pre-hijacking). Password resets and verification links are single use, hashed, and kept out of
+  server logs ([ADR 0018](docs/adr/0018-google-sign-in-and-email-ownership.md)).
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 249 API tests against real Postgres and Redis — including Hypothesis properties for
-  CRDT convergence, compaction and diff3, and two API instances in one process — and 104 web
+- **Tested.** 282 API tests against real Postgres and Redis — including Hypothesis properties for
+  CRDT convergence, compaction and diff3, and two API instances in one process, and a fake Google — and 115 web
   tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
   load-tests them with k6.
 

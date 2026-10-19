@@ -2,8 +2,22 @@ import { http, HttpResponse } from 'msw'
 import type { DocumentSummary } from '../features/documents/api'
 import type { SessionResponse, User } from '../features/auth/session'
 
-export const ADA: User = { id: 'u-ada', email: 'ada@example.com', name: 'Ada Lovelace' }
-export const BOB: User = { id: 'u-bob', email: 'bob@example.com', name: 'Bob' }
+export const ADA: User = {
+  id: 'u-ada',
+  email: 'ada@example.com',
+  name: 'Ada Lovelace',
+  email_verified: true,
+  has_password: true,
+  avatar_url: null,
+}
+export const BOB: User = {
+  id: 'u-bob',
+  email: 'bob@example.com',
+  name: 'Bob',
+  email_verified: true,
+  has_password: true,
+  avatar_url: null,
+}
 
 export function sessionFor(user: User, token = `token-${user.id}`): SessionResponse {
   return { access_token: token, token_type: 'bearer', expires_in: 900, user }

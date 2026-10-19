@@ -2,10 +2,12 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth.google import GoogleClient
 from app.auth.router import me_router
 from app.auth.router import router as auth_router
 from app.branches.router import router as branches_router
@@ -47,6 +49,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.rooms = RoomManager(store, settings, bus)
     app.state.redis = redis
     app.state.mailer = create_mailer(settings)
+    # Calls to Google, only when sign-in with Google is set up: building the client's TLS
+    # context reads the whole CA bundle (half a second on Windows), so it is not made idly.
+    http = httpx.AsyncClient(timeout=10) if settings.google_enabled else None
+    app.state.google = GoogleClient(settings, http) if http is not None else None
     app.state.rate_limiter = RateLimiter(redis, enabled=settings.rate_limit_enabled)
     app.state.readiness_checks = {
         "database": lambda: ping_database(engine),
@@ -63,6 +69,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.rooms.shutdown()
         await bus.stop()
         await redis.aclose()
+        if http is not None:
+            await http.aclose()
         await engine.dispose()
         log.info("shutdown")
 

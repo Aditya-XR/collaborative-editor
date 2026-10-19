@@ -26,6 +26,33 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     name: str
+    email_verified: bool
+    # False for accounts that only sign in with Google; a password reset can add one.
+    has_password: bool
+    avatar_url: str | None
+
+
+class AuthOptions(BaseModel):
+    """Which ways to sign in this deployment offers."""
+
+    google: bool
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    password: Password
+
+
+class VerifyEmailRequest(BaseModel):
+    token: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+
+
+class Accepted(BaseModel):
+    detail: str
 
 
 class SessionOut(BaseModel):

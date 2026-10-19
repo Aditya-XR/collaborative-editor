@@ -16,29 +16,11 @@ from app.core.mail import Email
 from app.documents.models import DocumentMember, DocumentRole
 from app.main import create_app
 from tests.collab_client import open_document
-from tests.conftest import RegisteredUser, register, reset_state
+from tests.conftest import Outbox, RegisteredUser, mark_verified, register, reset_state
 from tests.test_documents import create_doc, grant
 
 START = base64.b64encode(b"\x01\xa4\x8f\x03\x07").decode()
 END = base64.b64encode(b"\x01\xa4\x8f\x03\x0c").decode()
-
-
-class Outbox:
-    def __init__(self) -> None:
-        self.sent: list[Email] = []
-
-    async def send(self, email: Email) -> None:
-        self.sent.append(email)
-
-    def to(self, address: str) -> list[Email]:
-        return [email for email in self.sent if email.to == address]
-
-
-@pytest.fixture
-def outbox(app: FastAPI) -> Outbox:
-    box = Outbox()
-    app.state.mailer = box
-    return box
 
 
 def threads_url(doc_id: str, suffix: str = "") -> str:
@@ -476,6 +458,8 @@ async def test_a_new_thread_emails_the_owner(
     app: FastAPI, client: AsyncClient, outbox: Outbox
 ) -> None:
     owner, commenter, _, doc_id = await team(app, client)
+    await mark_verified(app, owner, commenter)
+    outbox.sent.clear()  # the sign-up verification emails
     thread = await open_thread(client, commenter, doc_id, "Is this number right?")
 
     [email] = outbox.sent
@@ -492,6 +476,8 @@ async def test_replies_email_everyone_in_the_thread_but_the_author(
     owner, commenter, _, doc_id = await team(app, client)
     editor = await register(client, email="e@example.com", name="Editor")
     await grant(app, doc_id, editor, DocumentRole.EDITOR)
+    await mark_verified(app, owner, commenter, editor)
+    outbox.sent.clear()
     thread = await open_thread(client, owner, doc_id)
     assert outbox.sent == []  # nobody to tell: the owner wrote it
 
@@ -521,6 +507,8 @@ async def test_branch_comment_emails_name_the_branch(
     app: FastAPI, client: AsyncClient, outbox: Outbox
 ) -> None:
     owner, commenter, _, doc_id = await team(app, client)
+    await mark_verified(app, owner)
+    outbox.sent.clear()
     branch = (
         await client.post(
             f"/api/documents/{doc_id}/branches", json={"name": "Draft"}, headers=owner.headers
@@ -532,6 +520,20 @@ async def test_branch_comment_emails_name_the_branch(
     [email] = outbox.sent
     assert "“Q4 plan” (branch “Draft”):" in email.text
     assert f"/d/{doc_id}/b/{branch['id']}?thread=" in email.text
+
+
+async def test_unverified_addresses_get_no_comment_email(
+    app: FastAPI, client: AsyncClient, outbox: Outbox
+) -> None:
+    """Otherwise anyone could register with someone else's address and point our email at
+    their inbox."""
+    owner, commenter, _, doc_id = await team(app, client)
+    outbox.sent.clear()
+
+    thread = await open_thread(client, commenter, doc_id)
+    await answer(client, owner, doc_id, thread["id"], "Reply")
+
+    assert outbox.sent == []
 
 
 async def test_a_failing_mailer_does_not_fail_the_comment(

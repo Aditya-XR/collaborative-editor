@@ -122,7 +122,14 @@ async def test_me_requires_a_valid_access_token(client: AsyncClient) -> None:
     assert garbage.status_code == 401
     assert garbage.json()["code"] == "invalid_token"
     assert valid.status_code == 200
-    assert valid.json() == {"id": user.id, "email": user.email, "name": user.name}
+    assert valid.json() == {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "email_verified": False,
+        "has_password": True,
+        "avatar_url": None,
+    }
 
 
 async def test_expired_access_token_gets_its_own_code(

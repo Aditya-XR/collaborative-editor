@@ -2,6 +2,9 @@ import type { RouteObject } from 'react-router'
 import { RedirectIfSignedIn, RequireAuth } from '../features/auth/guards'
 import { LoginPage } from '../features/auth/LoginPage'
 import { RegisterPage } from '../features/auth/RegisterPage'
+import { ForgotPasswordPage } from '../features/auth/ForgotPasswordPage'
+import { ResetPasswordPage } from '../features/auth/ResetPasswordPage'
+import { VerifyEmailPage } from '../features/auth/VerifyEmailPage'
 import { DashboardPage } from '../features/documents/DashboardPage'
 import { AcceptLinkPage } from '../features/sharing/AcceptLinkPage'
 import { FullPageSpinner } from '../components/ui/Spinner'
@@ -18,8 +21,12 @@ export const routes: RouteObject[] = [
         children: [
           { path: '/login', element: <LoginPage /> },
           { path: '/register', element: <RegisterPage /> },
+          { path: '/forgot-password', element: <ForgotPasswordPage /> },
         ],
       },
+      // Opened from emailed links, signed in or not, in whichever browser the mail app picks.
+      { path: '/reset-password', element: <ResetPasswordPage /> },
+      { path: '/verify-email', element: <VerifyEmailPage /> },
       {
         element: <RequireAuth />,
         children: [

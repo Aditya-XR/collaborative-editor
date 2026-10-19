@@ -12,7 +12,7 @@ import type { Member } from './api'
 import { ShareDialog } from './ShareDialog'
 
 const DOC = makeDocument({ id: 'doc-1', title: 'Team plan' })
-const CAROL: User = { id: 'u-carol', email: 'carol@example.com', name: 'Carol' }
+const CAROL: User = { ...BOB, id: 'u-carol', email: 'carol@example.com', name: 'Carol' }
 
 function member(user: User, role: Role): Member {
   return { user, role, added_at: new Date().toISOString() }

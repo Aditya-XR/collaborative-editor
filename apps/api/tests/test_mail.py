@@ -47,6 +47,22 @@ def test_without_an_smtp_host_emails_are_only_logged() -> None:
     assert isinstance(create_mailer(Settings(smtp_host="")), LogMailer)
 
 
+async def test_logged_emails_show_their_links_only_outside_production(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    production = Settings(env="production", smtp_host="", jwt_secret="x" * 40, cookie_secure=True)
+    email = Email(to="ada@example.com", subject="Reset", text="https://app/reset#token=SECRET")
+
+    await create_mailer(Settings(smtp_host="", env="development")).send(email)
+    shown = capsys.readouterr().out
+    await create_mailer(production).send(email)
+    hidden = capsys.readouterr().out
+
+    assert "token=SECRET" in shown
+    assert "ada@example.com" in hidden
+    assert "token=SECRET" not in hidden
+
+
 @pytest.mark.parametrize("port", [465, 587])
 async def test_smtp_sends_over_tls_with_the_configured_account(port: int) -> None:
     mailer = create_mailer(

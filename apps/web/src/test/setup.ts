@@ -4,9 +4,9 @@ import { afterAll, afterEach, beforeAll } from 'vitest'
 import { setTokenSource } from '../lib/api'
 import { server } from './server'
 
-// findBy* queries wait up to 5 s instead of 1 s: the lazily loaded editor chunk can take longer
-// than a second to import on a busy CI runner, which made those tests flaky under load.
-configure({ asyncUtilTimeout: 5000 })
+// findBy* queries wait up to 15 s instead of 1 s: the lazily loaded editor chunk can take seconds
+// to import while other test files run alongside (5 s still timed out on a busy machine).
+configure({ asyncUtilTimeout: 15_000 })
 
 // jsdom does no layout, and Range lacks the measuring methods ProseMirror calls when it
 // scrolls the selection into view (after Undo, for instance). Report an empty box.
