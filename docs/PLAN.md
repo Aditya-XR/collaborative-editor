@@ -148,7 +148,7 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
 - Also fixed 2026-10-15: the API took 11 minutes to wake. A migration lock left by a killed
   process's lingering database session can block startup; startup now skips the lock when the
   schema is current and waits at most 60 s otherwise (`alembic/env.py`, tested)
-- [x] **8 · Google sign-in and email** (week 11) ✅ 2026-10-19
+- [x] **8 · Google sign-in and email** (week 11) ✅ 2026-10-22
   - [x] Sign in with Google: authorization code flow with PKCE, state bound to the browser by a
         cookie, nonce, ID token checked against Google's keys; `openid email profile` only
   - [x] Accounts matched by Google's subject id; a Google sign-in on an address someone
@@ -163,8 +163,13 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
   - [x] 282 API tests (20 against a fake Google with a real RSA key that enforces PKCE), 117 web
         tests; browser run against a local fake Google: 12/12 (Google sign-in and cancel,
         sign-up and verify, reset)
+  - [x] Deployed 2026-10-22 with a published Google OAuth client and Gmail SMTP; checked locally
+        against real Google, then on the live site: Google sign-in, a real verification email, and
+        a password reset
   - Found: building an HTTP client reads the whole CA bundle (half a second on Windows), so it is
     made only when Google is configured
+  - Found in deployment: Google will not publish a sign-in app without a home page and a privacy
+    policy link, so the app now has `/privacy`
 - [ ] **9 · Export, offline app, polish** (week 12)
 - [ ] **10 · AI assistant** (week 13)
 - [ ] **11 · Hardening and launch** (week 14) → **Gate 2: v2 release**

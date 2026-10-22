@@ -142,5 +142,10 @@ changes, add the new one in step 6 and update step 4. For local testing, put the
 | Editor stuck on "Syncing…" | `VITE_WS_URL` missing or wrong (must be `wss://…onrender.com`), or the API is waking |
 | `readyz` shows database `error` | Pooled Neon URL used, or wrong password |
 | Rate-limit 503 on login | Redis unreachable; login fails closed by design |
+| No **Continue with Google** button | `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` missing on Render (`/api/auth/options` says `"google":false`) |
+| Google: "invalid_client: The OAuth client was not found" | `GOOGLE_CLIENT_ID` is cut short: it starts with the project number and a dash (`123…-abc….apps.googleusercontent.com`). Copy it with the copy button, not by double-clicking |
+| Google: "redirect_uri_mismatch" | The client's redirect URI is not exactly `FRONTEND_URL` + `/api/auth/google/callback` |
+| **Publish app** greyed out on Google's Audience page | Home page and privacy policy links missing on the Branding page (step 9.4) |
+| No verification or reset email | SMTP variables missing or misnamed (`SMTP_USERNAME`, not `SMTP_USER`), or a normal password used instead of a Gmail app password |
 | Editors reconnect ~35 s after a deploy, not instantly | Expected: Render's edge does not forward the server's WebSocket close frame, so clients notice through the heartbeat (ADR 0012) |
 | Startup fails: `REDIS_URL must start with redis://` | Pasted the whole `redis-cli -u …` command, or added quotes; paste only the `redis://…` URL |
