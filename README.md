@@ -19,8 +19,9 @@ a live document, rework it on the side, and merge it back after review.
 > hardening. The original MERN version is
 > preserved under the [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
-> The API runs on Render's free plan, which sleeps after about 15 idle minutes: the first request
-> after a quiet spell waits while it wakes, usually under a minute.
+> Try the live demo with **Continue with Google** or a new email account. The API runs on Render's
+> free plan, which sleeps after about 15 idle minutes: the first request after a quiet spell waits
+> while it wakes, usually under a minute.
 
 ## Highlights
 
@@ -61,9 +62,9 @@ a live document, rework it on the side, and merge it back after review.
   server logs ([ADR 0018](docs/adr/0018-google-sign-in-and-email-ownership.md)).
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 282 API tests against real Postgres and Redis — including Hypothesis properties for
-  CRDT convergence, compaction and diff3, and two API instances in one process, and a fake Google — and 117 web
-  tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
+- **Tested.** 282 API tests against real Postgres and Redis, two API instances in one process and a
+  fake Google, including Hypothesis properties for CRDT convergence, compaction and diff3; and 117
+  web tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
   load-tests them with k6.
 
 ## Architecture
@@ -84,7 +85,8 @@ flowchart TB
     PG[("PostgreSQL<br/>edit log + snapshots")]
     RD[("Redis<br/>rate limits · WebSocket tickets<br/>pub/sub between instances")]
   end
-  MAIL["SMTP (optional)<br/>comment notifications"]
+  MAIL["SMTP (Gmail)<br/>verification · password reset · comments"]
+  GOOGLE["Google<br/>OAuth sign-in"]
   UI -- "HTTPS /api · JWT" --> REST
   YD <-- "WebSocket · Yjs sync + awareness" --> ROOMS
   REST --> PG
@@ -92,6 +94,7 @@ flowchart TB
   REST --> RD
   ROOMS <-- "edits · cursors · events" --> RD
   REST -.-> MAIL
+  REST -.-> GOOGLE
 ```
 
 ## Stack
@@ -102,7 +105,7 @@ flowchart TB
 | Editing | Tiptap (ProseMirror) + Yjs in the browser, pycrdt sync server over WebSockets |
 | API | Python 3.13, FastAPI, SQLAlchemy 2 (async), Alembic |
 | Data | PostgreSQL, Redis |
-| Hosting | Vercel (web), Render (API), Neon (Postgres), Redis Cloud |
+| Hosting | Vercel (web), Render (API), Neon (Postgres), Redis Cloud, Gmail SMTP (email) |
 | Tooling | uv, ruff, mypy, pytest, oxlint, Prettier, Vitest, GitHub Actions, Docker Compose, nginx, k6 |
 
 ## Local development
@@ -138,6 +141,11 @@ curl -s localhost:8000/api/healthz   # repeat: "instance" alternates
 Open http://localhost:5173, create an account, and create a document. Open it in a second
 window to watch edits and cursors sync live; stop the API to try offline editing. The dashboard
 footer shows the API's readiness: green when Postgres, Redis and the pub/sub connection all answer.
+
+Without SMTP settings the API prints each email (verification, password reset, comment
+notifications) to its log instead of sending it, so you can follow the links. To try Google
+sign-in locally, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `apps/api/.env`
+([DEPLOY.md](docs/DEPLOY.md), step 9); without them the Google button is hidden.
 
 ## Checks
 

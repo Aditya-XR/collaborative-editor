@@ -178,6 +178,7 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0001](adr/0001-crdt-for-collaborative-editing.md) | Yjs CRDT for merging concurrent edits |
 | [0002](adr/0002-postgresql.md) | PostgreSQL as the system of record |
 | [0003](adr/0003-edit-log-and-snapshots.md) | Append-only edit log plus snapshots |
+| [0004](adr/0004-redis-pubsub-between-instances.md) | Redis pub/sub between API instances, Yjs sync between servers |
 | [0005](adr/0005-token-bucket-rate-limiter.md) | Token bucket in a Redis Lua script, fail open or closed per policy |
 | [0006](adr/0006-websocket-tickets.md) | One-time WebSocket tickets instead of tokens in URLs |
 | [0011](adr/0011-sessions-and-refresh-rotation.md) | In-memory access tokens, rotating refresh cookie with reuse detection |
@@ -186,3 +187,5 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0014](adr/0014-versions-and-restore.md) | Versions as snapshots; restore as an ordinary edit made by the browser |
 | [0015](adr/0015-full-text-search.md) | Full-text search in Postgres, stemmed and as-typed prefixes |
 | [0016](adr/0016-branches-and-merge-requests.md) | Branches as separate streams; diff3 over paragraphs gates CRDT merges |
+| [0017](adr/0017-comments.md) | Comments anchored with Yjs relative positions, stored beside the text |
+| [0018](adr/0018-google-sign-in-and-email-ownership.md) | Google sign-in with PKCE; hashed single-use reset and verification links |
