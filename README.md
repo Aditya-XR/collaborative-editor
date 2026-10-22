@@ -11,13 +11,12 @@ a live document, rework it on the side, and merge it back after review.
 
 ![Two people editing the same document: Rahul's caret and name appear live in Priya's window, with both avatars and "All changes synced" in the header](docs/screenshots/editor.png)
 
-> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–7
-> of the [v2 plan](docs/PLAN.md) are done — accounts, live editing with offline support,
-> compaction, version history, search, sharing, comments, branches with merge requests, and
-> several API instances sharing live documents through Redis. Phase 8 (Google sign-in, password
-> reset and verified email addresses) is built on the `phase-8` branch, waiting for Google
-> credentials before it goes live. After that: export and an installable offline app, an AI
-> assistant, and hardening. The original MERN version is
+> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–8
+> of the [v2 plan](docs/PLAN.md) are done — accounts with Google sign-in, password reset and
+> verified email addresses, live editing with offline support, compaction, version history,
+> search, sharing, comments, branches with merge requests, and several API instances sharing live
+> documents through Redis. Next: export and an installable offline app, an AI assistant, and
+> hardening. The original MERN version is
 > preserved under the [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
 > The API runs on Render's free plan, which sleeps after about 15 idle minutes: the first request

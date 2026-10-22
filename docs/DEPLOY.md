@@ -80,6 +80,18 @@ To send through Gmail for free (up to ~500 a day):
 3. Register a new account: the verification email arrives within a minute (check spam the
    first time).
 
+### 8. More than one instance (optional, paid plans)
+The API runs as any number of instances: they share live documents through Redis pub/sub
+(ADR 0004), and migrations take turns on a Postgres lock. Things to know before scaling:
+
+- **Redis connections:** each instance uses a small pool plus one subscriber connection. Redis
+  Cloud's free plan allows 30 connections.
+- **No sticky sessions needed:** any instance can redeem any WebSocket ticket.
+- **Readiness:** `/api/readyz` reports `pubsub`. An instance whose subscriber is down still
+  serves its own clients, and catches up when it reconnects.
+
+`docker compose --profile full` runs two instances behind nginx locally (README).
+
 ### 9. Sign in with Google (optional)
 Without it the Google button is hidden. With it (ADR 0018):
 
@@ -108,18 +120,6 @@ Without it the Google button is hidden. With it (ADR 0018):
 The redirect URI is always `FRONTEND_URL` + `/api/auth/google/callback`. If the Vercel address
 changes, add the new one in step 5. For local testing, put the same two variables in
 `apps/api/.env`.
-
-### 8. More than one instance (optional, paid plans)
-The API runs as any number of instances: they share live documents through Redis pub/sub
-(ADR 0004), and migrations take turns on a Postgres lock. Things to know before scaling:
-
-- **Redis connections:** each instance uses a small pool plus one subscriber connection. Redis
-  Cloud's free plan allows 30 connections.
-- **No sticky sessions needed:** any instance can redeem any WebSocket ticket.
-- **Readiness:** `/api/readyz` reports `pubsub`. An instance whose subscriber is down still
-  serves its own clients, and catches up when it reconnects.
-
-`docker compose --profile full` runs two instances behind nginx locally (README).
 
 ## Smoke test after deploying
 
