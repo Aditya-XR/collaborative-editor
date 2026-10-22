@@ -189,3 +189,21 @@ describe('email verification', () => {
     expect(screen.queryByRole('region', { name: 'Confirm your email' })).toBeNull()
   })
 })
+
+describe('privacy policy', () => {
+  it('opens signed out and is linked from the sign-in page', async () => {
+    server.use(signedOut())
+    renderApp('/login')
+
+    const link = await screen.findByRole('link', { name: 'Privacy policy' })
+    expect(link).toHaveAttribute('href', '/privacy')
+  })
+
+  it('is not sent to sign-in first', async () => {
+    server.use(signedOut())
+    renderApp('/privacy')
+
+    expect(await screen.findByRole('heading', { name: 'Privacy policy' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).toBeNull()
+  })
+})

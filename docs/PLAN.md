@@ -158,8 +158,9 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
   - [x] Email verification at sign-up, resend, banner; comment emails only to verified addresses
   - [x] Tokens stored as SHA-256 and sent after `#`, out of server logs; dev logs show emails
         so links can be followed, production never does
-  - [x] Web: Continue with Google, forgot / reset / verify pages, verification banner
-  - [x] 282 API tests (20 against a fake Google with a real RSA key that enforces PKCE), 115 web
+  - [x] Web: Continue with Google, forgot / reset / verify pages, verification banner, and a
+        privacy policy page (Google requires one before the sign-in app can be published)
+  - [x] 282 API tests (20 against a fake Google with a real RSA key that enforces PKCE), 117 web
         tests; browser run against a local fake Google: 12/12 (Google sign-in and cancel,
         sign-up and verify, reset)
   - Found: building an HTTP client reads the whole CA bundle (half a second on Windows), so it is

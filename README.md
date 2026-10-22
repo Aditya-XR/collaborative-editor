@@ -62,7 +62,7 @@ a live document, rework it on the side, and merge it back after review.
 - **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
   when the connection returns, and the copies are wiped on sign-out or when access is revoked.
 - **Tested.** 282 API tests against real Postgres and Redis — including Hypothesis properties for
-  CRDT convergence, compaction and diff3, and two API instances in one process, and a fake Google — and 115 web
+  CRDT convergence, compaction and diff3, and two API instances in one process, and a fake Google — and 117 web
   tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
   load-tests them with k6.
 

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 
 export function AuthLayout({
   title,
@@ -23,6 +24,11 @@ export function AuthLayout({
           <div className="mt-6">{children}</div>
         </div>
         <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">{footer}</p>
+        <p className="mt-4 text-center text-xs">
+          <Link to="/privacy" className="text-slate-500 hover:underline dark:text-slate-400">
+            Privacy policy
+          </Link>
+        </p>
       </div>
     </main>
   )

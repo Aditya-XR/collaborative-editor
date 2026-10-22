@@ -103,22 +103,26 @@ Without it the Google button is hidden. With it (ADR 0018):
    - **Contact information:** your address. Agree to the policy → **Create**.
 3. **Data access** → **Add or remove scopes** → tick `openid`, `.../auth/userinfo.email` and
    `.../auth/userinfo.profile` → **Update** → **Save**. These are non-sensitive: no review.
-4. **Audience** → under *Publishing status*, **Publish app** → **Confirm**, so any Google account can
+4. **Branding** (Google requires these before publishing):
+   - **Application home page:** `https://collaborative-editor-flax.vercel.app`
+   - **Application privacy policy link:** `https://collaborative-editor-flax.vercel.app/privacy`
+   - **Authorized domains** → **Add domain** → `collaborative-editor-flax.vercel.app` → **Save**.
+5. **Audience** → under *Publishing status*, **Publish app** → **Confirm**, so any Google account can
    sign in. (Left in *Testing*, only the accounts listed under *Test users* can.)
-5. **Clients** → **Create client**:
+6. **Clients** → **Create client**:
    - **Application type:** Web application. **Name:** `CollabEdit web`.
    - **Authorized redirect URIs**, both exactly:
      `https://collaborative-editor-flax.vercel.app/api/auth/google/callback` and
      `http://localhost:5173/api/auth/google/callback`.
    - **Create**. The dialog shows the client ID and the **client secret, which Google never shows
      again**: copy both, or **Download JSON**, now.
-6. Render → the API service → **Environment** → add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+7. Render → the API service → **Environment** → add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
    → **Save changes** (it redeploys).
-7. Check: <https://collabedit-api.onrender.com/api/auth/options> answers `{"google":true}`, and the
+8. Check: <https://collabedit-api.onrender.com/api/auth/options> answers `{"google":true}`, and the
    sign-in page shows **Continue with Google**.
 
 The redirect URI is always `FRONTEND_URL` + `/api/auth/google/callback`. If the Vercel address
-changes, add the new one in step 5. For local testing, put the same two variables in
+changes, add the new one in step 6 and update step 4. For local testing, put the same two variables in
 `apps/api/.env`.
 
 ## Smoke test after deploying

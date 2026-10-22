@@ -9,6 +9,7 @@ import { DashboardPage } from '../features/documents/DashboardPage'
 import { AcceptLinkPage } from '../features/sharing/AcceptLinkPage'
 import { FullPageSpinner } from '../components/ui/Spinner'
 import { NotFoundPage } from './NotFoundPage'
+import { PrivacyPage } from './PrivacyPage'
 
 export const routes: RouteObject[] = [
   {
@@ -27,6 +28,8 @@ export const routes: RouteObject[] = [
       // Opened from emailed links, signed in or not, in whichever browser the mail app picks.
       { path: '/reset-password', element: <ResetPasswordPage /> },
       { path: '/verify-email', element: <VerifyEmailPage /> },
+      // Linked from Google's consent screen, so it must open without signing in.
+      { path: '/privacy', element: <PrivacyPage /> },
       {
         element: <RequireAuth />,
         children: [
