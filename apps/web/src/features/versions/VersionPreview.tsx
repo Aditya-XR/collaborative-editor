@@ -1,9 +1,9 @@
 import Collaboration from '@tiptap/extension-collaboration'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
 import { useEffect, useMemo } from 'react'
 import * as Y from 'yjs'
 import { decodeBase64 } from '../../lib/base64'
+import { documentExtensions } from '../editor/extensions'
 
 /**
  * A version, read-only, rendered by the same editor as the live document: headings, lists and
@@ -25,10 +25,7 @@ export function VersionPreview({
 
   const editor = useEditor(
     {
-      extensions: [
-        StarterKit.configure({ undoRedo: false }),
-        Collaboration.configure({ document: doc }),
-      ],
+      extensions: [...documentExtensions(), Collaboration.configure({ document: doc })],
       editable: false,
       editorProps: {
         attributes: {

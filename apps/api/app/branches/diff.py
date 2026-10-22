@@ -47,6 +47,9 @@ def _canonical(node: Node) -> Any:
 def _text(node: Node) -> str:
     if isinstance(node, XmlText):
         return "".join(run for run, _ in node.diff() if isinstance(run, str))
+    if isinstance(node, XmlElement) and node.tag == "image":
+        # An image has no text; say what it is, or review would show an empty line.
+        return f"[Image: {node.attributes.get('src') or 'no address'}]"
     return "\n".join(filter(None, (_text(child) for child in node.children)))
 
 

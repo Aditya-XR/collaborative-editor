@@ -1,7 +1,6 @@
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { EditorContent, useEditor, type Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react'
 import { useEffect } from 'react'
 import type { User } from '../auth/session'
 import {
@@ -10,6 +9,7 @@ import {
   type CommentHandlers,
 } from '../comments/CommentHighlights'
 import { colorFor } from './colors'
+import { documentExtensions } from './extensions'
 import type { CollabProvider } from './CollabProvider'
 import { Toolbar } from './Toolbar'
 
@@ -31,9 +31,7 @@ export function CollaborativeEditor({
   const editor = useEditor(
     {
       extensions: [
-        // Collaboration brings its own undo, which only reverts your own changes: undoing must
-        // never erase what someone else typed. So the default history is switched off.
-        StarterKit.configure({ undoRedo: false }),
+        ...documentExtensions(),
         Collaboration.configure({ document: provider.doc }),
         CollaborationCaret.configure({
           provider,
@@ -74,6 +72,23 @@ export function CollaborativeEditor({
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {editable && <Toolbar editor={editor} />}
       <EditorContent editor={editor} />
+      <WordCount editor={editor} />
     </div>
+  )
+}
+
+function WordCount({ editor }: { editor: Editor }) {
+  const { words, characters } = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      words: e.storage.characterCount.words(),
+      characters: e.storage.characterCount.characters(),
+    }),
+  })
+  return (
+    <p className="border-t border-slate-100 px-8 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      {words.toLocaleString()} {words === 1 ? 'word' : 'words'} · {characters.toLocaleString()}{' '}
+      {characters === 1 ? 'character' : 'characters'}
+    </p>
   )
 }

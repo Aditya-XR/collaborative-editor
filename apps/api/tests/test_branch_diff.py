@@ -161,3 +161,20 @@ def test_list_blocks_show_their_items_text() -> None:
         item.children.append(XmlElement("paragraph")).children.append(XmlText(text))
 
     assert blocks(doc)[0].text == "one\ntwo"
+
+
+def test_images_and_tables_read_as_text_in_review() -> None:
+    doc: Doc[Any] = Doc()
+    body = doc.get(EDITOR_ROOT, type=XmlFragment)
+    body.children.append(XmlElement("image", {"src": "https://example.com/chart.png"}))
+    table = body.children.append(XmlElement("table"))
+    for cells in (("Name", "Owner"), ("Launch", "Ada")):
+        row = table.children.append(XmlElement("tableRow"))
+        for text in cells:
+            cell = row.children.append(XmlElement("tableCell"))
+            cell.children.append(XmlElement("paragraph")).children.append(XmlText(text))
+
+    assert [block.text for block in blocks(doc)] == [
+        "[Image: https://example.com/chart.png]",
+        "Name\nOwner\nLaunch\nAda",
+    ]
