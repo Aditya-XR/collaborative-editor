@@ -77,6 +77,19 @@ async def rename_document(
     return (await service.rename(session, view, body.title)).out()
 
 
+@router.put("/{doc_id}/star")
+async def star_document(doc_id: uuid.UUID, user: CurrentUser, session: DbSession) -> DocumentOut:
+    """Stars a document for the current user. Any member may, viewers included."""
+    view = await service.get_for(session, user, doc_id)
+    return (await service.set_starred(session, user, view, True, datetime.now(UTC))).out()
+
+
+@router.delete("/{doc_id}/star")
+async def unstar_document(doc_id: uuid.UUID, user: CurrentUser, session: DbSession) -> DocumentOut:
+    view = await service.get_for(session, user, doc_id)
+    return (await service.set_starred(session, user, view, False, datetime.now(UTC))).out()
+
+
 @router.delete("/{doc_id}", status_code=204)
 async def trash_document(
     doc_id: uuid.UUID, request: Request, user: CurrentUser, session: DbSession

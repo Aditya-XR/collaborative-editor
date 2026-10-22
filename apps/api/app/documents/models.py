@@ -78,3 +78,5 @@ class DocumentMember(Base):
         )
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # A star is personal, so it lives on the member row: losing access drops it too.
+    starred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

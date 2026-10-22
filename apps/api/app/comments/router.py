@@ -66,6 +66,7 @@ async def create_thread(
     doc_id: uuid.UUID,
     body: ThreadCreate,
     request: Request,
+    response: Response,
     background: BackgroundTasks,
     user: CurrentUser,
     session: DbSession,
@@ -73,7 +74,7 @@ async def create_thread(
 ) -> ThreadOut:
     view = await documents.get_for(session, user, doc_id)
     where = await service.stream(session, view, body.branch_id)
-    thread = await service.create_thread(
+    thread, created = await service.create_thread(
         session,
         where,
         user,
@@ -81,12 +82,22 @@ async def create_thread(
         anchor_end=body.anchor_end,
         quoted_text=body.quoted_text,
         body=body.body,
+        client_id=body.client_id,
     )
-    await _announce(request, where)
-    emails = await service.notifications(
-        session, where, thread, user, body.body, new_thread=True, frontend_url=settings.frontend_url
-    )
-    background.add_task(send_all, _mailer(request), emails)
+    if created:
+        await _announce(request, where)
+        emails = await service.notifications(
+            session,
+            where,
+            thread,
+            user,
+            body.body,
+            new_thread=True,
+            frontend_url=settings.frontend_url,
+        )
+        background.add_task(send_all, _mailer(request), emails)
+    else:
+        response.status_code = 200  # a replay: nothing new was created
     return await service.describe(session, where, thread.id, user.id)
 
 
@@ -117,6 +128,7 @@ async def reply(
     thread_id: uuid.UUID,
     body: CommentCreate,
     request: Request,
+    response: Response,
     background: BackgroundTasks,
     user: CurrentUser,
     session: DbSession,
@@ -124,18 +136,21 @@ async def reply(
 ) -> ThreadOut:
     view = await documents.get_for(session, user, doc_id)
     where, thread = await service.thread_stream(session, view, thread_id)
-    await service.reply(session, where, thread, user, body.body)
-    await _announce(request, where)
-    emails = await service.notifications(
-        session,
-        where,
-        thread,
-        user,
-        body.body,
-        new_thread=False,
-        frontend_url=settings.frontend_url,
-    )
-    background.add_task(send_all, _mailer(request), emails)
+    _, created = await service.reply(session, where, thread, user, body.body, body.client_id)
+    if created:
+        await _announce(request, where)
+        emails = await service.notifications(
+            session,
+            where,
+            thread,
+            user,
+            body.body,
+            new_thread=False,
+            frontend_url=settings.frontend_url,
+        )
+        background.add_task(send_all, _mailer(request), emails)
+    else:
+        response.status_code = 200
     return await service.describe(session, where, thread_id, user.id)
 
 

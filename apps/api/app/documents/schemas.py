@@ -14,6 +14,7 @@ class Scope(StrEnum):
     ALL = "all"
     OWNED = "owned"
     SHARED = "shared"
+    STARRED = "starred"
 
 
 class DocumentCreate(BaseModel):
@@ -34,6 +35,8 @@ class DocumentOut(BaseModel):
     title: str
     role: DocumentRole
     owner: OwnerOut
+    # Starred by the user asking: each member stars documents for themselves.
+    starred: bool
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None

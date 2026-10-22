@@ -1,5 +1,6 @@
 """Comment threads: permissions, replies, resolving, live signals and email notifications."""
 
+import asyncio
 import base64
 import uuid
 from typing import Any
@@ -568,3 +569,108 @@ async def test_writing_comments_has_its_own_rate_limit(settings: Settings) -> No
 
     assert [r.status_code for r in statuses] == [201] * 60 + [429]
     assert statuses[-1].json()["code"] == "rate_limited"
+
+
+# ----- offline replays --------------------------------------------------------------------------
+
+
+async def test_a_thread_sent_twice_is_stored_once(
+    app: FastAPI, client: AsyncClient, outbox: Outbox
+) -> None:
+    """An offline outbox resends when the reply was lost; the client id makes that harmless."""
+    owner, commenter, _, doc_id = await team(app, client)
+    await mark_verified(app, owner, commenter)
+    outbox.sent.clear()
+    payload = {
+        "client_id": str(uuid.uuid4()),
+        "anchor_start": START,
+        "anchor_end": END,
+        "quoted_text": "budget",
+        "body": "Written on a train",
+    }
+
+    first = await client.post(threads_url(doc_id), json=payload, headers=commenter.headers)
+    replay = await client.post(threads_url(doc_id), json=payload, headers=commenter.headers)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert len(await listed(client, owner, doc_id)) == 1
+    assert len(outbox.sent) == 1  # the owner hears about it once
+
+
+async def test_a_reply_sent_twice_is_stored_once(
+    app: FastAPI, client: AsyncClient, outbox: Outbox
+) -> None:
+    owner, commenter, _, doc_id = await team(app, client)
+    thread = await open_thread(client, commenter, doc_id)
+    await client.patch(
+        threads_url(doc_id, f"/{thread['id']}"), json={"resolved": True}, headers=owner.headers
+    )
+    url = threads_url(doc_id, f"/{thread['id']}/comments")
+    payload = {"client_id": str(uuid.uuid4()), "body": "Fixed it offline"}
+
+    first = await client.post(url, json=payload, headers=owner.headers)
+    await client.patch(
+        threads_url(doc_id, f"/{thread['id']}"), json={"resolved": True}, headers=owner.headers
+    )
+    replay = await client.post(url, json=payload, headers=owner.headers)
+
+    assert first.status_code == 201
+    assert replay.status_code == 200
+    [stored] = await listed(client, owner, doc_id)
+    assert [c["body"] for c in stored["comments"]] == ["Is this number right?", "Fixed it offline"]
+    # The replay changed nothing: the thread resolved after the reply stays resolved.
+    assert stored["resolved_at"] is not None
+
+
+async def test_a_client_id_never_reaches_someone_elses_comment(
+    app: FastAPI, client: AsyncClient
+) -> None:
+    owner, commenter, _, doc_id = await team(app, client)
+    client_id = str(uuid.uuid4())
+    thread = await open_thread(client, commenter, doc_id, client_id=client_id)
+    other_doc = (await create_doc(client, owner, "Elsewhere"))["id"]
+    await grant(app, other_doc, commenter, DocumentRole.COMMENTER)
+
+    payload = {"client_id": client_id, "anchor_start": START, "anchor_end": END}
+    payload |= {"quoted_text": "x", "body": "Mine?"}
+    by_someone_else = await client.post(threads_url(doc_id), json=payload, headers=owner.headers)
+    on_another_doc = await client.post(
+        threads_url(other_doc), json=payload, headers=commenter.headers
+    )
+    reply_id = str(uuid.uuid4())
+    await client.post(
+        threads_url(doc_id, f"/{thread['id']}/comments"),
+        json={"client_id": reply_id, "body": "First"},
+        headers=commenter.headers,
+    )
+    reused_reply = await client.post(
+        threads_url(doc_id, f"/{thread['id']}/comments"),
+        json={"client_id": reply_id, "body": "Second"},
+        headers=owner.headers,
+    )
+
+    for response in (by_someone_else, on_another_doc, reused_reply):
+        assert response.status_code == 409, response.text
+        assert response.json()["code"] == "id_conflict"
+    [stored] = await listed(client, owner, doc_id)
+    assert [c["body"] for c in stored["comments"]] == ["Is this number right?", "First"]
+
+
+async def test_concurrent_replays_store_one_thread(app: FastAPI, client: AsyncClient) -> None:
+    """Two copies of one request racing past the existence check: the unique client id wins."""
+    _, commenter, _, doc_id = await team(app, client)
+    payload = {"client_id": str(uuid.uuid4()), "anchor_start": START, "anchor_end": END}
+    payload |= {"quoted_text": "x", "body": "Twice at once"}
+
+    responses = await asyncio.gather(
+        *(
+            client.post(threads_url(doc_id), json=payload, headers=commenter.headers)
+            for _ in range(2)
+        )
+    )
+
+    assert sorted(r.status_code for r in responses) == [200, 201]
+    assert responses[0].json()["id"] == responses[1].json()["id"]
+    assert len(await listed(client, commenter, doc_id)) == 1

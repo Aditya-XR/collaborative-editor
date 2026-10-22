@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import ColumnElement, delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -184,6 +185,27 @@ async def thread_stream(
 # ----- writing ----------------------------------------------------------------------------------
 
 
+def _id_conflict() -> ApiError:
+    return ApiError(409, "id_conflict", "Another comment already uses this client id")
+
+
+async def _replayed_thread(
+    session: AsyncSession, where: Stream, author: User, client_id: uuid.UUID
+) -> CommentThread | None:
+    """The thread an earlier request with this client id created, if any."""
+    existing = await session.scalar(
+        select(CommentThread).where(CommentThread.client_id == client_id)
+    )
+    if existing is None:
+        return None
+    same_place = (
+        existing.document_id == where.view.document.id and existing.branch_id == where.branch_id
+    )
+    if existing.created_by != author.id or not same_place:
+        raise _id_conflict()  # never a way to reach someone else's thread
+    return existing
+
+
 async def create_thread(
     session: AsyncSession,
     where: Stream,
@@ -193,8 +215,16 @@ async def create_thread(
     anchor_end: bytes,
     quoted_text: str,
     body: str,
-) -> CommentThread:
+    client_id: uuid.UUID | None = None,
+) -> tuple[CommentThread, bool]:
+    """Opens a thread with its first comment. Returns (thread, created).
+
+    A client id seen before means a replay (an offline outbox resending after a lost reply): the
+    existing thread comes back, and nobody is notified twice.
+    """
     where.require_comment()
+    if client_id and (existing := await _replayed_thread(session, where, author, client_id)):
+        return existing, False
     count = await session.scalar(select(func.count()).where(where.where()))
     if (count or 0) >= MAX_THREADS_PER_STREAM:
         raise ApiError(
@@ -210,18 +240,46 @@ async def create_thread(
         anchor_end=anchor_end,
         quoted_text=quoted_text,
         created_by=author.id,
+        client_id=client_id,
     )
-    session.add(thread)
-    await session.flush()
+    try:
+        # A savepoint, so losing a race rolls back only this insert and the objects this request
+        # already loaded (the author, the document) stay usable.
+        async with session.begin_nested():
+            session.add(thread)
+    except IntegrityError:
+        # A concurrent replay inserted the same client id between our read and our write.
+        if client_id and (existing := await _replayed_thread(session, where, author, client_id)):
+            return existing, False
+        raise
     session.add(Comment(id=uuid7(), thread_id=thread.id, author_id=author.id, body=body))
     await session.commit()
-    return thread
+    return thread, True
+
+
+async def _replayed_comment(
+    session: AsyncSession, thread: CommentThread, author: User, client_id: uuid.UUID
+) -> Comment | None:
+    existing = await session.scalar(select(Comment).where(Comment.client_id == client_id))
+    if existing is None:
+        return None
+    if existing.author_id != author.id or existing.thread_id != thread.id:
+        raise _id_conflict()
+    return existing
 
 
 async def reply(
-    session: AsyncSession, where: Stream, thread: CommentThread, author: User, body: str
-) -> Comment:
+    session: AsyncSession,
+    where: Stream,
+    thread: CommentThread,
+    author: User,
+    body: str,
+    client_id: uuid.UUID | None = None,
+) -> tuple[Comment, bool]:
+    """Adds a comment to a thread. Returns (comment, created); replays as in create_thread."""
     where.require_comment()
+    if client_id and (existing := await _replayed_comment(session, thread, author, client_id)):
+        return existing, False
     count = await session.scalar(select(func.count()).where(Comment.thread_id == thread.id))
     if (count or 0) >= MAX_COMMENTS_PER_THREAD:
         raise ApiError(
@@ -229,12 +287,20 @@ async def reply(
             "too_many_comments",
             f"A thread holds at most {MAX_COMMENTS_PER_THREAD} comments; start a new one.",
         )
-    comment = Comment(id=uuid7(), thread_id=thread.id, author_id=author.id, body=body)
-    session.add(comment)
+    comment = Comment(
+        id=uuid7(), thread_id=thread.id, author_id=author.id, body=body, client_id=client_id
+    )
+    try:
+        async with session.begin_nested():  # as in create_thread
+            session.add(comment)
+    except IntegrityError:
+        if client_id and (existing := await _replayed_comment(session, thread, author, client_id)):
+            return existing, False
+        raise
     # Replying to a resolved discussion reopens it, as it does in Google Docs.
     thread.resolved_at = thread.resolved_by = None
     await session.commit()
-    return comment
+    return comment, True
 
 
 async def set_resolved(

@@ -186,3 +186,41 @@ async def test_malformed_ids_are_rejected(client: AsyncClient) -> None:
 
     assert (await client.get("/api/documents/not-a-uuid", headers=alice.headers)).status_code == 422
     assert (await client.put("/api/documents/123", headers=alice.headers)).status_code == 422
+
+
+async def test_stars_are_personal_and_repeatable(app: FastAPI, client: AsyncClient) -> None:
+    alice, bob = await two_users(client)
+    doc = await create_doc(client, alice, "Shared plan")
+    other = await create_doc(client, alice, "Other")
+    await grant(app, doc["id"], bob, DocumentRole.VIEWER)
+    star = f"/api/documents/{doc['id']}/star"
+
+    assert doc["starred"] is False
+    first = await client.put(star, headers=bob.headers)  # viewers may star too
+    again = await client.put(star, headers=bob.headers)  # an offline replay
+
+    assert first.status_code == again.status_code == 200
+    assert first.json()["starred"] is True
+    starred = (await client.get("/api/documents?scope=starred", headers=bob.headers)).json()
+    assert [d["title"] for d in starred] == ["Shared plan"]
+    # Alice's view of the same document is unchanged, and starring did not count as an edit.
+    as_alice = (await client.get(f"/api/documents/{doc['id']}", headers=alice.headers)).json()
+    assert as_alice["starred"] is False
+    assert as_alice["updated_at"] == doc["updated_at"]
+    assert (await client.get("/api/documents?scope=starred", headers=alice.headers)).json() == []
+
+    unstarred = await client.delete(star, headers=bob.headers)
+    assert unstarred.json()["starred"] is False
+    assert (await client.delete(star, headers=bob.headers)).status_code == 200
+    assert (await client.get("/api/documents?scope=starred", headers=bob.headers)).json() == []
+    assert other["starred"] is False
+
+
+async def test_outsiders_cannot_star(client: AsyncClient) -> None:
+    alice, bob = await two_users(client)
+    doc = await create_doc(client, alice)
+
+    response = await client.put(f"/api/documents/{doc['id']}/star", headers=bob.headers)
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "document_not_found"

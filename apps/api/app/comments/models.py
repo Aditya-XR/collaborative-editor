@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, LargeBinary, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, LargeBinary, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -39,6 +39,9 @@ class CommentThread(Base):
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    # Chosen by the browser so a thread written offline and sent twice is stored once. Not the
+    # primary key: ids order threads and comments, and a device's clock must not decide that.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)
 
 
 class Comment(Base):
@@ -57,3 +60,5 @@ class Comment(Base):
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # As on threads: lets a reply sent twice be stored once.
+    client_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, unique=True)

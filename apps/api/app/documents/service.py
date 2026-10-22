@@ -23,6 +23,7 @@ class DocumentView:
     document: Document
     role: DocumentRole
     owner_name: str
+    starred: bool = False
 
     def out(self) -> DocumentOut:
         doc = self.document
@@ -31,15 +32,16 @@ class DocumentView:
             title=doc.title,
             role=self.role,
             owner=OwnerOut(id=doc.owner_id, name=self.owner_name),
+            starred=self.starred,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
             deleted_at=doc.deleted_at,
         )
 
 
-def _visible_to(user: User) -> Select[Document, DocumentRole, str]:
+def _visible_to(user: User) -> Select[Document, DocumentRole, str, datetime | None]:
     return (
-        select(Document, DocumentMember.role, User.name)
+        select(Document, DocumentMember.role, User.name, DocumentMember.starred_at)
         .join(
             DocumentMember,
             and_(DocumentMember.document_id == Document.id, DocumentMember.user_id == user.id),
@@ -96,9 +98,14 @@ async def list_for(
             query = query.where(Document.owner_id == user.id)
         elif scope is Scope.SHARED:
             query = query.where(Document.owner_id != user.id)
+        elif scope is Scope.STARRED:
+            query = query.where(DocumentMember.starred_at.is_not(None))
     query = query.order_by(Document.updated_at.desc(), Document.id.desc()).limit(limit)
     rows = await session.execute(query)
-    return [DocumentView(doc, role, owner_name) for doc, role, owner_name in rows]
+    return [
+        DocumentView(doc, role, owner_name, starred_at is not None)
+        for doc, role, owner_name, starred_at in rows
+    ]
 
 
 async def get_for(
@@ -113,16 +120,31 @@ async def get_for(
     # Not a member and trashed both look like "not found": existence is not leaked.
     if row is None or (row[0].deleted_at is not None and not include_trashed):
         raise ApiError(404, "document_not_found", "Document not found")
-    document, role, owner_name = row
+    document, role, owner_name, starred_at = row
     if ROLE_RANK[role] < ROLE_RANK[min_role]:
         raise ApiError(403, "insufficient_role", f"Requires {min_role.value} access")
-    return DocumentView(document, role, owner_name)
+    return DocumentView(document, role, owner_name, starred_at is not None)
 
 
 async def rename(session: AsyncSession, view: DocumentView, title: str) -> DocumentView:
     view.document.title = title
     await session.commit()
     return view
+
+
+async def set_starred(
+    session: AsyncSession, user: User, view: DocumentView, starred: bool, now: datetime
+) -> DocumentView:
+    """Stars or unstars for this user only. Repeating either is harmless (offline replays)."""
+    member = await session.get(DocumentMember, (view.document.id, user.id))
+    if member is None:  # access removed since get_for: treat it like any outsider
+        raise ApiError(404, "document_not_found", "Document not found")
+    if starred and member.starred_at is None:
+        member.starred_at = now
+    elif not starred:
+        member.starred_at = None
+    await session.commit()
+    return DocumentView(view.document, view.role, view.owner_name, starred)
 
 
 async def trash(session: AsyncSession, view: DocumentView, now: datetime) -> None:
@@ -203,13 +225,13 @@ async def search(session: AsyncSession, user: User, text: str, limit: int) -> li
             select(
                 Document.id,
                 func.ts_headline(SIMPLE, Document.search_text, query, _HEADLINE),
-            ).where(Document.id.in_([doc.id for doc, _, _ in rows]))
+            ).where(Document.id.in_([doc.id for doc, _, _, _ in rows]))
         )
     }
     return [
         SearchHit(
-            document=DocumentView(doc, role, owner_name).out(),
+            document=DocumentView(doc, role, owner_name, starred_at is not None).out(),
             snippet=snippet_parts(headlines.get(doc.id) or ""),
         )
-        for doc, role, owner_name in rows
+        for doc, role, owner_name, starred_at in rows
     ]

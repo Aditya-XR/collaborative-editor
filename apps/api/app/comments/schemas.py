@@ -33,6 +33,8 @@ Quote = Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
 
 
 class ThreadCreate(BaseModel):
+    # Any UUID the browser picks for this request: repeating it returns the thread it created.
+    client_id: uuid.UUID | None = None
     # Comment on one of the document's branches instead of its main text.
     branch_id: uuid.UUID | None = None
     anchor_start: Anchor
@@ -46,6 +48,7 @@ class ThreadUpdate(BaseModel):
 
 
 class CommentCreate(BaseModel):
+    client_id: uuid.UUID | None = None
     body: Body
 
 
