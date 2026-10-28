@@ -36,6 +36,7 @@ vi.mock('../editor/useCollab', () => ({
 }))
 
 const PARAGRAPHS = ['Intro to the plan', 'The budget is 10k this quarter.']
+const UUID7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 /** The document as the server would have sent it. */
 function withText(provider: CollabProvider): CollabProvider {
@@ -147,10 +148,63 @@ describe('comments', () => {
     expect(card).toHaveAttribute('aria-current', 'true')
     await user.type(within(card).getByRole('textbox', { name: 'Reply' }), '  Yes, checked.  ')
     await user.click(within(card).getByRole('button', { name: 'Reply' }))
-    await waitFor(() => expect(posted).toEqual({ body: 'Yes, checked.' }))
+    // With an id the browser chose, so a repeat of this request lands once.
+    await waitFor(() =>
+      expect(posted).toEqual({ body: 'Yes, checked.', client_id: expect.stringMatching(UUID7) }),
+    )
 
     await user.click(within(card).getByRole('button', { name: 'Resolve' }))
     await waitFor(() => expect(resolved).toEqual({ resolved: true }))
+  })
+
+  it('keeps a comment written offline, shown as not sent, and sends it once', async () => {
+    let reachable = false
+    const received: Record<string, unknown>[] = []
+    const threads: Thread[] = []
+    server.use(
+      http.post(`${base}/threads`, async ({ request }) => {
+        if (!reachable) return HttpResponse.error()
+        const body = (await request.json()) as Record<string, unknown>
+        received.push(body)
+        const opened = thread({
+          id: 't-new',
+          anchor_start: String(body.anchor_start),
+          anchor_end: String(body.anchor_end),
+          quoted_text: String(body.quoted_text),
+          comments: [comment({ author: { id: ADA.id, name: ADA.name }, body: 'Too low?' })],
+        })
+        threads.push(opened)
+        return HttpResponse.json(opened, { status: 201 })
+      }),
+    )
+    const { user } = openDocument(() => threads)
+    const editor = await liveEditor()
+
+    let from = -1
+    editor.state.doc.descendants((node, pos) => {
+      if (node.isText && node.text!.includes('10k')) from = pos + node.text!.indexOf('10k')
+    })
+    editor.commands.setTextSelection({ from, to: from + '10k'.length })
+    await user.click(screen.getByRole('button', { name: 'Add comment' }))
+    const form = screen.getByRole('form', { name: 'New comment' })
+    await user.type(within(form).getByRole('textbox', { name: 'Comment' }), 'Too low?')
+    await user.click(within(form).getByRole('button', { name: 'Comment' }))
+
+    // Queued: on its passage at once, and plainly not sent.
+    const card = await screen.findByRole('article', { name: 'Comment on “10k”' })
+    expect(within(card).getByText('Too low?')).toBeInTheDocument()
+    expect(within(card).getByText(/^Not sent yet: it goes out/)).toBeInTheDocument()
+    await waitFor(() => expect(highlights()).toEqual(['10k']))
+
+    reachable = true
+    await waitFor(() => expect(received).toHaveLength(1), { timeout: 10_000 })
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('article', { name: 'Comment on “10k”' })).queryByText(/Not sent/),
+      ).toBeNull(),
+    )
+    expect(screen.getAllByRole('article', { name: 'Comment on “10k”' })).toHaveLength(1)
+    expect(received[0]).toMatchObject({ body: 'Too low?', client_id: expect.stringMatching(UUID7) })
   })
 
   it('opens a thread on the selected text', async () => {
@@ -190,7 +244,12 @@ describe('comments', () => {
     await user.click(within(form).getByRole('button', { name: 'Comment' }))
 
     await waitFor(() =>
-      expect(created).toMatchObject({ quoted_text: '10k', body: 'Too low?', branch_id: null }),
+      expect(created).toMatchObject({
+        quoted_text: '10k',
+        body: 'Too low?',
+        branch_id: null,
+        client_id: expect.stringMatching(UUID7),
+      }),
     )
     expect(await screen.findByRole('article', { name: 'Comment on “10k”' })).toHaveAttribute(
       'aria-current',

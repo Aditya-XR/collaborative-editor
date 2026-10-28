@@ -1,10 +1,14 @@
+import { dehydrate, QueryClient } from '@tanstack/react-query'
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { CollabProvider } from '../editor/CollabProvider'
 import { renderApp } from '../../test/renderApp'
 import { server } from '../../test/server'
-import { BOB, makeDocument, readinessOk, signedIn } from '../../test/fixtures'
+import { ADA, apiError, BOB, makeDocument, readinessOk, signedIn } from '../../test/fixtures'
+import { UNTITLED } from './queries'
+
+const UUID7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 // Opening a document starts a live connection; these tests only care about navigation.
 // One provider per document, as the real hook memoizes it.
@@ -22,7 +26,9 @@ function providerFor(documentId: string): CollabProvider {
   return provider
 }
 
-vi.mock('../editor/useCollab', () => ({
+vi.mock('../editor/useCollab', async (importOriginal) => ({
+  // The real connection setup, for downloading documents kept available offline.
+  ...(await importOriginal<typeof import('../editor/useCollab')>()),
   useCollab: (documentId: string) => ({
     provider: providerFor(documentId),
     state: {
@@ -63,7 +69,8 @@ function documentsEndpoint() {
 }
 
 function setup(...handlers: Parameters<typeof server.use>) {
-  server.use(signedIn(), readinessOk(), documentsEndpoint(), ...handlers)
+  // Within one call the first matching handler wins: a test's own come before the defaults.
+  server.use(...handlers, signedIn(), readinessOk(), documentsEndpoint())
   return renderApp('/')
 }
 
@@ -91,18 +98,142 @@ describe('dashboard', () => {
     expect(router.state.location.search).toBe('?view=shared')
   })
 
-  it('creates a document and opens it', async () => {
-    const created = makeDocument({ id: 'doc-new', title: 'Untitled document' })
+  it('creates a document under an id it chose, and opens it', async () => {
+    const created: string[] = []
     const { user, router } = setup(
-      http.post('*/api/documents', () => HttpResponse.json(created, { status: 201 })),
-      http.get('*/api/documents/doc-new', () => HttpResponse.json(created)),
+      http.put('*/api/documents/:id', ({ params }) => {
+        created.push(String(params.id))
+        return HttpResponse.json(makeDocument({ id: String(params.id), title: UNTITLED }), {
+          status: 201,
+        })
+      }),
+      http.get('*/api/documents/:id', ({ params }) =>
+        HttpResponse.json(makeDocument({ id: String(params.id), title: UNTITLED })),
+      ),
     )
     await screen.findByText('My plan')
 
     await user.click(screen.getByRole('button', { name: 'New document' }))
 
-    expect(await screen.findByRole('heading', { name: 'Untitled document' })).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/d/doc-new')
+    expect(await screen.findByRole('heading', { name: UNTITLED })).toBeInTheDocument()
+    expect(created).toHaveLength(1)
+    expect(created[0]).toMatch(UUID7)
+    expect(router.state.location.pathname).toBe(`/d/${created[0]}`)
+  })
+
+  it('creates a document after the browser said it went offline', async () => {
+    const created: string[] = []
+    const { user, router } = setup(
+      http.put('*/api/documents/:id', ({ params }) => {
+        created.push(String(params.id))
+        return HttpResponse.json(makeDocument({ id: String(params.id), title: UNTITLED }), {
+          status: 201,
+        })
+      }),
+    )
+    await screen.findByText('My plan')
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    // TanStack Query hears this too, and would hold every change until the network returns.
+    globalThis.dispatchEvent(new Event('offline'))
+
+    try {
+      await user.click(screen.getByRole('button', { name: 'New document' }))
+      expect(await screen.findByRole('heading', { name: UNTITLED })).toBeInTheDocument()
+      expect(router.state.location.pathname).toMatch(/^\/d\//)
+      expect(created).toEqual([]) // queued, not sent
+    } finally {
+      onLine.mockRestore()
+      globalThis.dispatchEvent(new Event('online'))
+    }
+    await waitFor(() => expect(created).toEqual([router.state.location.pathname.slice(3)]))
+  })
+
+  it('creates a document offline, opens it, and sends it once the API answers', async () => {
+    let reachable = false
+    const created: string[] = []
+    const { user, router } = setup(
+      http.put('*/api/documents/:id', ({ params }) => {
+        if (!reachable) return HttpResponse.error()
+        created.push(String(params.id))
+        return HttpResponse.json(makeDocument({ id: String(params.id), title: UNTITLED }), {
+          status: 201,
+        })
+      }),
+      http.get('*/api/documents/:id', ({ params }) =>
+        HttpResponse.json(makeDocument({ id: String(params.id), title: UNTITLED })),
+      ),
+    )
+    await screen.findByText('My plan')
+
+    await user.click(screen.getByRole('button', { name: 'New document' }))
+
+    // Made on this device: it opens at once, and the header counts it as not synced.
+    expect(await screen.findByRole('heading', { name: UNTITLED })).toBeInTheDocument()
+    const id = router.state.location.pathname.slice('/d/'.length)
+    expect(id).toMatch(UUID7)
+    expect(await screen.findByText(/^Offline/)).toHaveTextContent('1 change not synced')
+
+    // The outbox retries with backoff; once the API answers, the same PUT lands, once.
+    reachable = true
+    await waitFor(() => expect(created).toEqual([id]), { timeout: 10_000 })
+    await waitFor(() => expect(screen.queryByText(/^Offline|^Sending/)).toBeNull())
+  })
+
+  it('stars a document for the person who starred it', async () => {
+    const starred: string[] = []
+    const { user } = setup(
+      http.put('*/api/documents/:id/star', ({ params }) => {
+        starred.push(String(params.id))
+        return HttpResponse.json({ ...mine, starred: true })
+      }),
+      // The list fetched again afterwards says what the server now holds.
+      http.get('*/api/documents', () =>
+        HttpResponse.json([shared, { ...mine, starred: starred.includes(mine.id) }]),
+      ),
+    )
+    await screen.findByText('My plan')
+
+    const star = screen.getByRole('button', { name: 'Star My plan' })
+    expect(star).toHaveAttribute('aria-pressed', 'false')
+    await user.click(star)
+
+    expect(await screen.findByRole('button', { name: 'Unstar My plan' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(starred).toEqual(['doc-mine'])
+  })
+
+  it('keeps a document available offline when asked', async () => {
+    const { user } = setup(
+      // Downloading it for offline use connects once; refusing ends that quickly.
+      http.post('*/api/collab/tickets', () => apiError(403, 'insufficient_role')),
+      http.get('*/api/documents/doc-mine', () => HttpResponse.json(mine)),
+    )
+    await screen.findByText('My plan')
+
+    const keep = screen.getByRole('button', { name: 'Make My plan available offline' })
+    await user.click(keep)
+
+    expect(keep).toHaveAttribute('aria-pressed', 'true')
+    expect(JSON.parse(localStorage.getItem(`collabedit:${ADA.id}:pinned`)!)).toEqual(['doc-mine'])
+  })
+
+  it('opens offline with the lists this device saved', async () => {
+    const saved = new QueryClient()
+    saved.setQueryData(['documents', 'list', 'all'], [mine])
+    localStorage.setItem(
+      `collabedit:${ADA.id}:queries`,
+      JSON.stringify({ version: 1, savedAt: Date.now(), state: dehydrate(saved) }),
+    )
+    setup(http.get('*/api/documents', () => HttpResponse.error()))
+
+    expect(await screen.findByText('My plan')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/You’re offline. This is what this device saved/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move My plan to trash' })).toBeDisabled()
+    expect(screen.getByText(/^Offline/)).toBeInTheDocument()
   })
 
   it('renames a document inline', async () => {

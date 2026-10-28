@@ -1,6 +1,7 @@
 /**
  * Every IndexedDB database this app creates is named with this prefix and listed in a registry,
  * so signing out can remove all of them: a shared computer must not keep someone's documents.
+ * Everything it keeps in localStorage (saved lists, pins, the last profile) shares the prefix too.
  */
 export const OFFLINE_DB_PREFIX = 'collabedit:'
 const REGISTRY_KEY = 'collabedit:offline-databases'
@@ -32,6 +33,11 @@ export function rememberOfflineDatabase(name: string): void {
   if (!names.includes(name)) writeRegistry([...names, name])
 }
 
+/** Whether this browser holds a copy of the document, so it opens without a connection. */
+export function hasOfflineCopy(userId: string, documentId: string): boolean {
+  return readRegistry().includes(offlineDatabaseName(userId, documentId))
+}
+
 export function forgetOfflineDatabase(name: string): void {
   writeRegistry(readRegistry().filter((entry) => entry !== name))
 }
@@ -56,6 +62,16 @@ export async function wipeOfflineDatabases(): Promise<void> {
     ),
   )
   writeRegistry([])
+  wipeLocalStorage()
+}
+
+function wipeLocalStorage(): void {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i))
+    for (const key of keys) if (key?.startsWith(OFFLINE_DB_PREFIX)) localStorage.removeItem(key)
+  } catch {
+    // Storage blocked: nothing was saved there.
+  }
 }
 
 /** Ask the browser not to evict offline copies when disk runs low. Best effort. */

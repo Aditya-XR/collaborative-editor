@@ -5,10 +5,13 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 const VARIANT_CLASS: Record<Variant, string> = {
   primary:
     'bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-indigo-400 dark:disabled:bg-indigo-800',
+  // A disabled button must look it: offline, several wait for a connection (ADR 0019).
   secondary:
-    'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
-  ghost: 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
-  danger: 'text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950',
+    'border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:disabled:hover:bg-slate-900',
+  ghost:
+    'text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:hover:bg-transparent dark:text-slate-300 dark:hover:bg-slate-800',
+  danger:
+    'text-rose-600 hover:bg-rose-50 disabled:opacity-50 disabled:hover:bg-transparent dark:text-rose-400 dark:hover:bg-rose-950',
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

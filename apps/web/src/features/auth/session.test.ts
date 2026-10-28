@@ -65,6 +65,31 @@ describe('SessionManager', () => {
     expect(manager.user).toEqual(ADA)
   })
 
+  it('opens offline as whoever was signed in last, with no token until a refresh works', async () => {
+    const before = newManager()
+    before.start(sessionFor(ADA))
+    expect(newManager().resumeOffline()).toBe(true) // a reload with no network
+
+    const offline = newManager()
+    offline.resumeOffline()
+    expect(offline.user).toEqual(ADA)
+    expect(offline.getAccessToken()).toBeNull()
+    expect(offline.hasOfflineSession()).toBe(true)
+
+    server.use(http.post('*/api/auth/refresh', () => HttpResponse.json(sessionFor(ADA, 'back'))))
+    await expect(offline.refreshAccessToken()).resolves.toBe('back')
+    expect(offline.hasOfflineSession()).toBe(false)
+  })
+
+  it('remembers nobody once signed out, so the next visitor cannot open offline', () => {
+    const manager = newManager()
+    manager.start(sessionFor(ADA))
+    manager.signOut()
+
+    expect(newManager().resumeOffline()).toBe(false)
+    expect(localStorage.getItem('collabedit:last-user')).toBeNull()
+  })
+
   it('notifies subscribers on sign-in and sign-out', () => {
     const manager = newManager()
     const listener = vi.fn()

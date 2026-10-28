@@ -170,7 +170,33 @@ of week 6 (Gate 1) and the full v2 at the end of week 14 (Gate 2), on $0/month h
     made only when Google is configured
   - Found in deployment: Google will not publish a sign-in app without a home page and a privacy
     policy link, so the app now has `/privacy`
-- [ ] **9 · Export, offline app, polish** (week 12)
+- [x] **9 · Export, offline app, polish** (week 12) ✅ 2026-10-29, not yet deployed
+  - [x] Stars: personal to each member (`document_members.starred_at`), a Starred view, a star
+        on every row
+  - [x] Editor: checklists, tables, images by web address, links (Ctrl+K), word count and a
+        shortcuts dialog; one extension list shared by the live editor and version previews
+  - [x] App shell offline and installable: a Workbox service worker precaches every built file,
+        the editor and Word chunks included; never touches `/api`; new versions wait for Reload
+  - [x] Opens offline signed in as the last person; document lists, summaries and comments are
+        saved on the device; online-only actions are disabled with the reason
+  - [x] Offline create, rename, star, comment and reply, queued in an IndexedDB outbox and
+        replayed in order; every request repeat-safe (browser UUIDv7 + `PUT`, comment
+        `client_id`s); refusals listed in a banner (ADR 0019)
+  - [x] Text edited offline reaches the server on reconnect even if its editor is closed;
+        documents can be kept available offline ahead of time
+  - [x] Header badge: offline or sending, with "N changes not synced" and "last online"; signing
+        out warns about unsent changes, then wipes the device
+  - [x] Export to Markdown (own converter), Word (`docx`, loaded on demand) and PDF (print
+        stylesheet), all in the browser and offline (ADR 0020)
+  - [x] Dark mode as a choice (system, light, dark) that survives reloads; layouts checked at
+        phone width
+  - [x] 289 API tests, 174 web tests; a browser run of the production build against the local
+        API: 31/31 (service worker, offline reload, offline create/edit/comment/star/export,
+        sent exactly once on reconnect, print, phone width, dark mode, sign-out wipe)
+  - Found: TanStack Query holds every mutation while the browser reports offline, so nothing
+    reached the outbox; mutations now always run and the outbox decides what waits
+  - Found: the first service worker did not control the page that installed it, so a document
+    opened offline before any reload had no editor code; it now claims the page at once
 - [ ] **10 · AI assistant** (week 13)
 - [ ] **11 · Hardening and launch** (week 14) → **Gate 2: v2 release**
 
@@ -194,3 +220,5 @@ If a phase slips, cut in this order: AI, then export, then Google sign-in. Never
 | [0016](adr/0016-branches-and-merge-requests.md) | Branches as separate streams; diff3 over paragraphs gates CRDT merges |
 | [0017](adr/0017-comments.md) | Comments anchored with Yjs relative positions, stored beside the text |
 | [0018](adr/0018-google-sign-in-and-email-ownership.md) | Google sign-in with PKCE; hashed single-use reset and verification links |
+| [0019](adr/0019-offline-app-and-outbox.md) | Service worker app shell, an outbox of repeat-safe requests, offline edits sent on reconnect |
+| [0020](adr/0020-export-in-the-browser.md) | Markdown, Word and PDF exports built in the browser from the editor's JSON |

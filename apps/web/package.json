@@ -29,6 +29,7 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/y-tiptap": "^3.0.9",
+    "docx": "9.11.0",
     "lib0": "^0.2.119",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -47,12 +48,14 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^29.1.1",
+    "jszip": "3.10.2",
     "msw": "^2.15.0",
     "oxlint": "^1.81.0",
     "prettier": "^3.9.9",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
+    "vite-plugin-pwa": "2.0.0",
     "vitest": "^5.0.2"
   }
 }

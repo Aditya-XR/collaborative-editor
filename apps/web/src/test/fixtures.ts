@@ -34,6 +34,7 @@ export function makeDocument(overrides: Partial<DocumentSummary> = {}): Document
     title: 'Launch plan',
     role: 'owner',
     owner: { id: ADA.id, name: ADA.name },
+    starred: false,
     created_at: now,
     updated_at: now,
     deleted_at: null,

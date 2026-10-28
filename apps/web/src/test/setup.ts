@@ -1,7 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
-import { setTokenSource } from '../lib/api'
+import { closeOutboxes } from '../features/offline/outboxes'
+import { apiReachability, setTokenSource } from '../lib/api'
+import { resetPins } from '../lib/pins'
+import { resetUnsynced } from '../lib/unsynced'
 import { server } from './server'
 
 // findBy* queries wait up to 15 s instead of 1 s: the lazily loaded editor chunk can take seconds
@@ -22,6 +25,13 @@ afterEach(() => {
   cleanup()
   server.resetHandlers()
   setTokenSource(null)
+  // A test that took the API away must not leave the next one "offline", and each test starts
+  // with nothing queued, pinned or saved: those live for the page, which outlasts a test.
+  apiReachability.reset()
+  closeOutboxes()
+  localStorage.clear()
+  resetPins()
+  resetUnsynced()
 })
 
 afterAll(() => server.close())

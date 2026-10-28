@@ -1,10 +1,11 @@
 import type { Content, Editor } from '@tiptap/react'
-import { useCallback, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Link, useLocation, useParams } from 'react-router'
 import { Alert } from '../../components/ui/Alert'
 import { Spinner } from '../../components/ui/Spinner'
 import { describeError } from '../../lib/errors'
+import { isUnreachable, useReachable } from '../../lib/network'
 import type { User } from '../auth/session'
 import { useAuth } from '../auth/useAuth'
 import type { DocumentSummary } from '../documents/api'
@@ -13,6 +14,7 @@ import { AppHeader } from '../layout/AppHeader'
 import { BranchesDialog } from '../branches/BranchesDialog'
 import { CommentsPanel } from '../comments/CommentsPanel'
 import { useComments } from '../comments/useComments'
+import { ExportMenu } from '../export/ExportMenu'
 import { ShareDialog } from '../sharing/ShareDialog'
 import { versionTitle, type Version } from '../versions/api'
 import { VersionHistory } from '../versions/VersionHistory'
@@ -28,21 +30,29 @@ export function EditorPage() {
   const document = useDocument(documentId)
 
   return (
-    <div className="min-h-dvh bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-dvh bg-slate-50 print:bg-white dark:bg-slate-950">
       <AppHeader />
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <Link to="/" className="text-sm text-indigo-600 dark:text-indigo-400">
+      <main className="mx-auto max-w-6xl px-4 py-6 print:max-w-none print:p-0">
+        <Link to="/" className="text-sm text-indigo-600 print:hidden dark:text-indigo-400">
           ← All documents
         </Link>
-        {document.isPending ? (
-          <CenteredSpinner />
+        {document.data ? (
+          // Keyed so moving between documents builds a fresh editor and connection. A saved
+          // copy stays open when a refresh fails: offline, it is all there is.
+          <LiveDocument key={document.data.id} document={document.data} user={user!} />
+        ) : document.fetchStatus === 'paused' || isUnreachable(document.error) ? (
+          <div className="mt-6">
+            <Alert>
+              This document isn’t on this device yet. Open it once while online, or make it
+              available offline from your documents.
+            </Alert>
+          </div>
         ) : document.isError ? (
           <div className="mt-6">
             <Alert>{describeError(document.error)}</Alert>
           </div>
         ) : (
-          // Keyed so moving between documents builds a fresh editor and connection.
-          <LiveDocument key={document.data.id} document={document.data} user={user!} />
+          <CenteredSpinner />
         )}
       </main>
     </div>
@@ -54,6 +64,9 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   // The ticket carries the role as of now; the REST copy may be a few seconds older.
   const role = state.role ?? document.role
   const canEdit = role === 'owner' || role === 'editor'
+  // Sharing, history and branches are decided by the server, so they wait for a connection.
+  const online = useReachable()
+  const needsServer = online ? undefined : 'Needs a connection'
   const [sharing, setSharing] = useState(false)
   const [history, setHistory] = useState(false)
   const [branching, setBranching] = useState(false)
@@ -64,6 +77,15 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   const [editor, setEditor] = useState<Editor | null>(null)
   const [restored, setRestored] = useState<string | null>(null)
   const closeHistory = useCallback(() => setHistory(false), [])
+  // The tab, the window list, and the name a printed PDF is saved under.
+  useEffect(() => {
+    const previous = globalThis.document.title
+    globalThis.document.title = `${document.title} – CollabEdit`
+    return () => {
+      globalThis.document.title = previous
+    }
+  }, [document.title])
+
   const comments = useComments({
     documentId: document.id,
     branchId: null,
@@ -82,28 +104,43 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
   }
 
   return (
-    <div className="mt-4 flex flex-col gap-4">
+    <div className="mt-4 flex flex-col gap-4 print:mt-0">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-64">
           <TitleField document={document} editable={canEdit} />
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-xs text-slate-500 print:hidden dark:text-slate-400">
             Owned by {document.owner.id === user.id ? 'you' : document.owner.name}
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 print:hidden">
           <PresenceAvatars peers={state.peers} />
           <SyncStatus state={state} />
           {state.status !== 'stopped' && (
-            <Button variant="secondary" onClick={() => setBranching(true)}>
-              Branches
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                disabled={!online}
+                title={needsServer}
+                onClick={() => setBranching(true)}
+              >
+                Branches
+              </Button>
+              {canEdit && (
+                <Button
+                  variant="secondary"
+                  disabled={!online}
+                  title={needsServer}
+                  onClick={() => setHistory(true)}
+                >
+                  History
+                </Button>
+              )}
+              <ExportMenu editor={editor} title={document.title} />
+              <Button disabled={!online} title={needsServer} onClick={() => setSharing(true)}>
+                Share
+              </Button>
+            </div>
           )}
-          {state.status !== 'stopped' && canEdit && (
-            <Button variant="secondary" onClick={() => setHistory(true)}>
-              History
-            </Button>
-          )}
-          {state.status !== 'stopped' && <Button onClick={() => setSharing(true)}>Share</Button>}
         </div>
       </div>
 
@@ -112,7 +149,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
       ) : (
         <>
           {!canEdit && (
-            <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p className="rounded-lg bg-amber-50 print:hidden px-4 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200">
               You have {role === 'commenter' ? 'comment' : 'view'} access. Changes by others appear
               live.
             </p>
@@ -120,7 +157,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
           {merged && !restored && (
             <p
               role="status"
-              className="rounded-lg bg-violet-50 px-4 py-2 text-sm text-violet-900 dark:bg-violet-950 dark:text-violet-100"
+              className="rounded-lg bg-violet-50 print:hidden px-4 py-2 text-sm text-violet-900 dark:bg-violet-950 dark:text-violet-100"
             >
               Merged “{merged}” into this document. The text from before is saved in version
               history.
@@ -129,7 +166,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
           {restored && (
             <p
               role="status"
-              className="flex items-center gap-3 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+              className="flex items-center gap-3 rounded-lg bg-emerald-50 print:hidden px-4 py-2 text-sm text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
             >
               <span className="flex-1">
                 Restored {restored}. The text from before is saved in version history, and Undo
@@ -140,7 +177,7 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
               </Button>
             </p>
           )}
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] print:block">
             {state.localReady ? (
               <CollaborativeEditor
                 provider={provider}
@@ -152,7 +189,9 @@ function LiveDocument({ document, user }: { document: DocumentSummary; user: Use
             ) : (
               <CenteredSpinner />
             )}
-            <CommentsPanel controller={comments} />
+            <div className="print:hidden">
+              <CommentsPanel controller={comments} />
+            </div>
           </div>
         </>
       )}
@@ -200,7 +239,9 @@ function TitleField({ document, editable }: { document: DocumentSummary; editabl
   }
   return (
     <>
-      <h1 className="sr-only">{document.title}</h1>
+      <h1 className="sr-only print:not-sr-only print:mb-4 print:text-3xl print:font-semibold">
+        {document.title}
+      </h1>
       <input
         aria-label="Document title"
         value={value}
@@ -208,7 +249,7 @@ function TitleField({ document, editable }: { document: DocumentSummary; editabl
         onChange={(event) => setDraft(event.target.value)}
         onBlur={save}
         onKeyDown={onKeyDown}
-        className="w-full truncate rounded-md bg-transparent px-1 py-0.5 text-2xl font-semibold tracking-tight outline-none hover:bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-500/40 dark:hover:bg-slate-900 dark:focus:bg-slate-900"
+        className="w-full truncate rounded-md bg-transparent px-1 py-0.5 text-2xl print:hidden font-semibold tracking-tight outline-none hover:bg-slate-100 focus:bg-white focus:ring-2 focus:ring-indigo-500/40 dark:hover:bg-slate-900 dark:focus:bg-slate-900"
       />
     </>
   )

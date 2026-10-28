@@ -1,8 +1,15 @@
 @import 'tailwindcss';
 
+/* Dark mode is a class on <html>, set from the theme setting (lib/theme.ts, index.html). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
-    color-scheme: light dark;
+    color-scheme: light;
+  }
+
+  :root.dark {
+    color-scheme: dark;
   }
 
   html {
@@ -134,12 +141,61 @@
   background-color: rgb(252 211 77 / 0.9);
 }
 
-@media (prefers-color-scheme: dark) {
-  .comment-highlight {
-    background-color: rgb(120 53 15 / 0.55);
-    border-bottom-color: rgb(217 119 6);
+.dark .comment-highlight {
+  background-color: rgb(120 53 15 / 0.55);
+  border-bottom-color: rgb(217 119 6);
+}
+
+.dark .comment-highlight-active {
+  background-color: rgb(146 64 14 / 0.9);
+}
+
+/*
+ * Printing, which is also how a document becomes a PDF: only the title and the text, on white.
+ * The page chrome is hidden with Tailwind's print: variant where it is rendered.
+ */
+@media print {
+  @page {
+    margin: 2cm;
   }
+
+  html,
+  body {
+    background: white !important;
+  }
+
+  /* Important: the dark-mode rules above are more specific. */
+  .comment-highlight,
   .comment-highlight-active {
-    background-color: rgb(146 64 14 / 0.9);
+    background: none !important;
+    border-bottom: none !important;
+  }
+
+  .collaboration-carets__caret,
+  .collaboration-carets__label {
+    display: none;
+  }
+
+  .prose-editor {
+    padding: 0 !important;
+    min-height: 0 !important;
+  }
+
+  .prose-editor pre {
+    white-space: pre-wrap;
+  }
+
+  .prose-editor h1,
+  .prose-editor h2,
+  .prose-editor h3,
+  .prose-editor tr,
+  .prose-editor img {
+    break-inside: avoid;
+  }
+
+  .prose-editor h1,
+  .prose-editor h2,
+  .prose-editor h3 {
+    break-after: avoid;
   }
 }

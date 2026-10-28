@@ -11,12 +11,12 @@ a live document, rework it on the side, and merge it back after review.
 
 ![Two people editing the same document: Rahul's caret and name appear live in Priya's window, with both avatars and "All changes synced" in the header](docs/screenshots/editor.png)
 
-> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–8
+> **Status:** live on Vercel (web) and Render (API) with Neon Postgres and Redis Cloud. Phases 0–9
 > of the [v2 plan](docs/PLAN.md) are done — accounts with Google sign-in, password reset and
-> verified email addresses, live editing with offline support, compaction, version history,
-> search, sharing, comments, branches with merge requests, and several API instances sharing live
-> documents through Redis. Next: export and an installable offline app, an AI assistant, and
-> hardening. The original MERN version is
+> verified email addresses, live editing, compaction, version history, search, sharing, comments,
+> branches with merge requests, several API instances sharing live documents through Redis, an
+> installable app that works offline, and export to Markdown, Word and PDF. Next: an AI assistant,
+> and hardening. The original MERN version is
 > preserved under the [`v1` tag](https://github.com/Aditya-XR/collaborative-editor/tree/v1).
 >
 > Try the live demo with **Continue with Google** or a new email account. The API runs on Render's
@@ -60,11 +60,18 @@ a live document, rework it on the side, and merge it back after review.
   address registered by someone who never proved it is cleaned before Google links it
   (pre-hijacking). Password resets and verification links are single use, hashed, and kept out of
   server logs ([ADR 0018](docs/adr/0018-google-sign-in-and-email-ownership.md)).
-- **Offline-first.** The browser keeps an IndexedDB copy of each document; edits made offline merge
-  when the connection returns, and the copies are wiped on sign-out or when access is revoked.
-- **Tested.** 282 API tests against real Postgres and Redis, two API instances in one process and a
-  fake Google, including Hypothesis properties for CRDT convergence, compaction and diff3; and 117
-  web tests. GitHub Actions runs them on every push, then starts two instances behind nginx and
+- **Works offline, installs as an app.** A service worker keeps the app itself; the browser keeps
+  an IndexedDB copy of each document and the lists around it. New documents, renames, stars and
+  comments made offline wait in an outbox of repeat-safe requests (browser-minted UUIDv7 ids,
+  comment client ids), so a lost reply or two tabs can never create anything twice. Text edited
+  offline reaches the server on reconnect even if its document is closed, and signing out wipes the
+  device ([ADR 0019](docs/adr/0019-offline-app-and-outbox.md)).
+- **Export anywhere.** Markdown from a hand-written converter, Word built in the browser with real
+  Word lists and headings, and PDF through a print stylesheet; all three work offline
+  ([ADR 0020](docs/adr/0020-export-in-the-browser.md)).
+- **Tested.** 289 API tests against real Postgres and Redis, two API instances in one process and a
+  fake Google, including Hypothesis properties for CRDT convergence, compaction and diff3; and 174
+  web tests, including changes made with the API down that must arrive exactly once. GitHub Actions runs them on every push, then starts two instances behind nginx and
   load-tests them with k6.
 
 ## Architecture
@@ -129,6 +136,10 @@ cd apps/web
 npm install
 npm run dev
 ```
+
+The development server has no service worker. To try the app offline, build it and serve the
+build on the same port: `npm run build && npx vite preview --port 5173`, then turn the network off
+in the browser's developer tools.
 
 To run the API as two instances behind nginx instead of step 2 (on the same port, so step 3
 works unchanged), see edits cross between them, and stop one to watch editors move to the other:

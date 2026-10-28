@@ -2,7 +2,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
 import { server } from '../test/server'
 import { apiError } from '../test/fixtures'
-import { api, ApiError, setTokenSource } from './api'
+import { api, ApiError, apiReachability, setTokenSource } from './api'
 import { describeError } from './errors'
 
 function tokenSource(current: string, refreshed: string | null) {
@@ -27,6 +27,33 @@ describe('api', () => {
 
     await expect(api('/me')).resolves.toEqual({ id: 'u1' })
     expect(source.refreshAccessToken).toHaveBeenCalledOnce()
+  })
+
+  it('notices when the API stops answering and when it answers again', async () => {
+    let down = true
+    server.use(
+      http.get('*/api/healthz', () =>
+        down ? new HttpResponse(null, { status: 503 }) : HttpResponse.json({ status: 'ok' }),
+      ),
+      http.get('*/api/gone', () => HttpResponse.error()),
+    )
+    const changes = vi.fn()
+    const stop = apiReachability.subscribe(changes)
+
+    // The hosting edge answering for a sleeping server is not the API answering.
+    await expect(api('/healthz', { auth: false })).rejects.toMatchObject({ status: 503 })
+    expect(apiReachability.isReachable()).toBe(false)
+    expect(apiReachability.answeredAt()).toBeNull()
+
+    down = false
+    await api('/healthz', { auth: false })
+    expect(apiReachability.isReachable()).toBe(true)
+    expect(apiReachability.answeredAt()).not.toBeNull()
+
+    await expect(api('/gone', { auth: false })).rejects.toBeInstanceOf(TypeError)
+    expect(apiReachability.isReachable()).toBe(false)
+    expect(changes).toHaveBeenCalledTimes(3)
+    stop()
   })
 
   it('does not refresh for other 401 errors', async () => {

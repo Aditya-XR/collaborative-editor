@@ -3,12 +3,22 @@ import { Alert } from '../../components/ui/Alert'
 import { Button } from '../../components/ui/Button'
 import { Spinner } from '../../components/ui/Spinner'
 import { describeError } from '../../lib/errors'
+import { isUnreachable } from '../../lib/network'
 import { timeAgo } from '../../lib/time'
-import { commentsApi, type Comment, type Thread } from './api'
+import { uuid7 } from '../../lib/uuid7'
+import { sendOrQueue } from '../offline/queue'
+import { useOutbox } from '../offline/useOutbox'
+import { commentsApi, replyPath, threadBody, threadsPath, type Comment, type Thread } from './api'
+import { pendingThreadId } from './pending'
 import { useCommentMutation } from './queries'
 import type { CommentsController, Filter } from './useComments'
 
 const BODY_MAX = 4000
+
+/** "Comment “Looks good to me…”": how a queued comment is named if the server refuses it. */
+function labelFor(action: string, text: string): string {
+  return `${action} “${text.length > 40 ? `${text.slice(0, 40)}…` : text}”`
+}
 
 /** The comment threads of the open document or branch, beside its text. */
 export function CommentsPanel({ controller }: { controller: CommentsController }) {
@@ -52,12 +62,18 @@ export function CommentsPanel({ controller }: { controller: CommentsController }
         ))}
       </div>
 
-      {threads.isPending ? (
-        <div className="flex justify-center py-6 text-indigo-600">
-          <Spinner />
-        </div>
-      ) : threads.isError ? (
-        <Alert>{describeError(threads.error)}</Alert>
+      {threads.data === undefined && controller.all.length === 0 ? (
+        threads.fetchStatus === 'paused' || isUnreachable(threads.error) ? (
+          <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            Comments load when you’re back online.
+          </p>
+        ) : threads.isError ? (
+          <Alert>{describeError(threads.error)}</Alert>
+        ) : (
+          <div className="flex justify-center py-6 text-indigo-600">
+            <Spinner />
+          </div>
+        )
       ) : visible.length === 0 ? (
         <p className="py-4 text-center text-sm text-slate-500 dark:text-slate-400">
           {filter === 'open'
@@ -86,23 +102,39 @@ export function CommentsPanel({ controller }: { controller: CommentsController }
 function NewThreadForm({ controller }: { controller: CommentsController }) {
   const { documentId, branchId, draft } = controller
   const [body, setBody] = useState('')
-  const create = useCommentMutation(documentId, branchId, (text: string) =>
-    commentsApi.create(documentId, branchId, {
+  const outbox = useOutbox()
+  // Sent now, or queued while offline; either way the browser names it, so a retry lands once.
+  const create = useCommentMutation(documentId, branchId, async (text: string) => {
+    const thread = {
+      client_id: uuid7(),
       anchor_start: draft!.start,
       anchor_end: draft!.end,
       quoted_text: draft!.quote,
       body: text,
-    }),
-  )
+    }
+    const sent = await sendOrQueue(
+      outbox,
+      {
+        kind: 'thread',
+        documentId,
+        method: 'POST',
+        path: threadsPath(documentId),
+        body: threadBody(branchId, thread),
+        label: labelFor('Comment', text),
+      },
+      () => commentsApi.create(documentId, branchId, thread),
+    )
+    return sent.queued ? pendingThreadId(thread.client_id) : sent.result.id
+  })
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     const text = body.trim()
     if (!text) return
     await create.mutateAsync(text).then(
-      (thread) => {
+      (threadId) => {
         controller.cancelDraft()
-        controller.select(thread.id)
+        controller.select(threadId)
       },
       () => undefined,
     )
@@ -153,9 +185,23 @@ function ThreadCard({
   const resolve = useCommentMutation(documentId, branchId, (resolved: boolean) =>
     commentsApi.setResolved(documentId, thread.id, resolved),
   )
-  const answer = useCommentMutation(documentId, branchId, (text: string) =>
-    commentsApi.reply(documentId, thread.id, text),
-  )
+  const outbox = useOutbox()
+  const answer = useCommentMutation(documentId, branchId, (text: string) => {
+    const clientId = uuid7()
+    return sendOrQueue(
+      outbox,
+      {
+        kind: 'reply',
+        documentId,
+        threadId: thread.id,
+        method: 'POST',
+        path: replyPath(documentId, thread.id),
+        body: { body: text, client_id: clientId },
+        label: labelFor('Reply', text),
+      },
+      () => commentsApi.reply(documentId, thread.id, text, clientId),
+    )
+  })
   const error = resolve.error ?? answer.error
 
   // A click on the passage selects the thread: bring its card into view.
@@ -205,6 +251,11 @@ function ThreadCard({
       {detached && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
           The text this was about was deleted.
+        </p>
+      )}
+      {thread.pending && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Not sent yet: it goes out when you’re back online. Replies can follow then.
         </p>
       )}
       <ol className="flex flex-col gap-3">
@@ -284,7 +335,7 @@ function CommentItem({
         <p className="min-w-0 truncate">
           <span className="font-medium">{comment.author?.name ?? 'Deleted account'}</span>{' '}
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            {timeAgo(comment.created_at)}
+            {comment.pending ? 'Not sent yet' : timeAgo(comment.created_at)}
             {comment.edited_at && ' (edited)'}
           </span>
         </p>

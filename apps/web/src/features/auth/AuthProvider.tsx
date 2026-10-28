@@ -1,7 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { setTokenSource } from '../../lib/api'
+import { isUnreachable } from '../../lib/network'
 import { wipeOfflineDatabases } from '../../lib/offline'
+import { resetPins } from '../../lib/pins'
+import { resetUnsynced } from '../../lib/unsynced'
+import { closeOutboxes } from '../offline/outboxes'
 import { authApi } from './api'
 import { AuthContext, type AuthValue } from './context'
 import { session as defaultSession, type SessionManager } from './session'
@@ -21,10 +25,13 @@ export function AuthProvider({
 
   useEffect(() => {
     let active = true
-    // The httpOnly refresh cookie survives reloads; trade it for an access token.
+    // The httpOnly refresh cookie survives reloads; trade it for an access token. Offline, carry
+    // on as whoever was signed in last, and confirm the session once the API answers.
     manager
       .refreshAccessToken()
-      .catch(() => null)
+      .catch((error: unknown) => {
+        if (isUnreachable(error)) manager.resumeOffline()
+      })
       .finally(() => {
         if (active) setStatus('ready')
       })
@@ -32,6 +39,19 @@ export function AuthProvider({
       active = false
     }
   }, [manager])
+
+  useEffect(() => {
+    if (!user || !manager.hasOfflineSession()) return
+    const confirm = () => void manager.refreshAccessToken().catch(() => null)
+    // The browser says when the network returns; a server that was down says nothing, so ask
+    // again now and then too.
+    globalThis.addEventListener('online', confirm)
+    const timer = setInterval(confirm, 30_000)
+    return () => {
+      globalThis.removeEventListener('online', confirm)
+      clearInterval(timer)
+    }
+  }, [manager, user])
 
   const value = useMemo<AuthValue>(
     () => ({
@@ -47,14 +67,20 @@ export function AuthProvider({
         } finally {
           manager.signOut()
           queryClient.clear()
+          closeOutboxes()
           await wipeOfflineDatabases()
+          resetPins()
+          resetUnsynced()
         }
       },
       signOutEverywhere: async () => {
         await authApi.logoutAll()
         manager.signOut()
         queryClient.clear()
+        closeOutboxes()
         await wipeOfflineDatabases()
+        resetPins()
+        resetUnsynced()
       },
       updateUser: (next) => manager.updateUser(next),
     }),

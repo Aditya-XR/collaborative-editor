@@ -14,6 +14,8 @@ export interface Comment {
   edited_at: string | null
   can_edit: boolean
   can_delete: boolean
+  /** Written offline and still waiting in the outbox (never from the server). */
+  pending?: boolean
 }
 
 export interface Thread {
@@ -29,16 +31,29 @@ export interface Thread {
   resolved_by: Person | null
   comments: Comment[]
   can_reply: boolean
+  /** Written offline and still waiting in the outbox (never from the server). */
+  pending?: boolean
 }
 
 export interface NewThread {
+  /** Chosen by the browser: sending the same thread twice creates it once (ADR 0019). */
+  client_id: string
   anchor_start: string
   anchor_end: string
   quoted_text: string
   body: string
 }
 
+/** The request body that creates a thread, as the outbox stores it too. */
+export const threadBody = (branchId: string | null, thread: NewThread) => ({
+  ...thread,
+  branch_id: branchId,
+})
+
 const base = (documentId: string) => `/documents/${documentId}`
+export const threadsPath = (documentId: string) => `${base(documentId)}/threads`
+export const replyPath = (documentId: string, threadId: string) =>
+  `${base(documentId)}/threads/${threadId}/comments`
 
 export const commentsApi = {
   list: (documentId: string, branchId: string | null) =>
@@ -46,14 +61,15 @@ export const commentsApi = {
       `${base(documentId)}/threads${branchId ? `?branch_id=${encodeURIComponent(branchId)}` : ''}`,
     ),
   create: (documentId: string, branchId: string | null, thread: NewThread) =>
-    api<Thread>(`${base(documentId)}/threads`, {
+    api<Thread>(threadsPath(documentId), {
       method: 'POST',
-      body: { ...thread, branch_id: branchId },
+      body: threadBody(branchId, thread),
     }),
-  reply: (documentId: string, threadId: string, body: string) =>
-    api<Thread>(`${base(documentId)}/threads/${threadId}/comments`, {
+  /** `clientId` makes a repeated reply (an outbox retry) land once. */
+  reply: (documentId: string, threadId: string, body: string, clientId: string) =>
+    api<Thread>(replyPath(documentId, threadId), {
       method: 'POST',
-      body: { body },
+      body: { body, client_id: clientId },
     }),
   setResolved: (documentId: string, threadId: string, resolved: boolean) =>
     api<Thread>(`${base(documentId)}/threads/${threadId}`, {

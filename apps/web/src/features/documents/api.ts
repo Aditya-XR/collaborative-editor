@@ -7,6 +7,8 @@ export interface DocumentSummary {
   title: string
   role: Role
   owner: { id: string; name: string }
+  /** Starred by the signed-in user (stars are personal). */
+  starred: boolean
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -18,10 +20,11 @@ export interface SearchHit {
   snippet: { text: string; match: boolean }[]
 }
 
-export type DashboardView = 'all' | 'owned' | 'shared' | 'trash'
+export type DashboardView = 'all' | 'starred' | 'owned' | 'shared' | 'trash'
 
 export const DASHBOARD_VIEWS: { value: DashboardView; label: string }[] = [
   { value: 'all', label: 'All' },
+  { value: 'starred', label: 'Starred' },
   { value: 'owned', label: 'Owned by me' },
   { value: 'shared', label: 'Shared with me' },
   { value: 'trash', label: 'Trash' },
@@ -34,10 +37,16 @@ function listQuery(view: DashboardView): string {
 export const documentsApi = {
   list: (view: DashboardView) => api<DocumentSummary[]>(`/documents${listQuery(view)}`),
   get: (id: string) => api<DocumentSummary>(`/documents/${id}`),
-  create: (title?: string) =>
-    api<DocumentSummary>('/documents', { method: 'POST', body: title ? { title } : undefined }),
+  /** Creates a document under an id the browser chose: repeating it is harmless (ADR 0019). */
+  createWithId: (id: string, title?: string) =>
+    api<DocumentSummary>(`/documents/${id}`, {
+      method: 'PUT',
+      body: title ? { title } : undefined,
+    }),
   rename: (id: string, title: string) =>
     api<DocumentSummary>(`/documents/${id}`, { method: 'PATCH', body: { title } }),
+  setStarred: (id: string, starred: boolean) =>
+    api<DocumentSummary>(`/documents/${id}/star`, { method: starred ? 'PUT' : 'DELETE' }),
   trash: (id: string) => api<void>(`/documents/${id}`, { method: 'DELETE' }),
   restore: (id: string) => api<DocumentSummary>(`/documents/${id}/restore`, { method: 'POST' }),
   search: (query: string, signal?: AbortSignal) =>

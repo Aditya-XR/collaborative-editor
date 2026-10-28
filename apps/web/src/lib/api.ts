@@ -19,12 +19,49 @@ export class ApiError extends Error {
 export interface TokenSource {
   getAccessToken(): string | null
   refreshAccessToken(): Promise<string | null>
+  /** Signed in from memory after opening offline: no token until a refresh succeeds. */
+  hasOfflineSession?(): boolean
 }
 
 let tokens: TokenSource | null = null
 
 export function setTokenSource(source: TokenSource | null): void {
   tokens = source
+}
+
+/** What the hosting edge answers for an API that is asleep or restarting: not the API's own. */
+export function isEdgeStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504
+}
+
+// Whether the last request got an answer from the API itself. The browser's online flag only
+// knows about the network; this also notices a server that is down.
+let reachable = true
+let answeredAt: number | null = null
+const reachabilityListeners = new Set<() => void>()
+
+function noteReachable(value: boolean): void {
+  if (value) answeredAt = Date.now()
+  if (reachable === value) return
+  reachable = value
+  for (const listener of reachabilityListeners) listener()
+}
+
+export const apiReachability = {
+  isReachable: (): boolean => reachable,
+  /** When the API last answered anything, in this page's life. */
+  answeredAt: (): number | null => answeredAt,
+  subscribe(listener: () => void): () => void {
+    reachabilityListeners.add(listener)
+    return () => reachabilityListeners.delete(listener)
+  },
+  /** Back to "reachable, never answered" (between tests). */
+  reset(): void {
+    answeredAt = null
+    if (reachable) return
+    reachable = true
+    for (const listener of reachabilityListeners) listener()
+  },
 }
 
 export function apiUrl(path: string): string {
@@ -43,20 +80,33 @@ interface RequestOptions {
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true, signal } = options
 
-  const send = (token: string | null): Promise<Response> => {
+  const send = async (token: string | null): Promise<Response> => {
     const headers: Record<string, string> = {}
     if (body !== undefined) headers['Content-Type'] = 'application/json'
     if (token) headers.Authorization = `Bearer ${token}`
-    return fetch(apiUrl(path), {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      credentials: 'include',
-      signal,
-    })
+    try {
+      const response = await fetch(apiUrl(path), {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        credentials: 'include',
+        signal,
+      })
+      noteReachable(!isEdgeStatus(response.status))
+      return response
+    } catch (error) {
+      // fetch throws a TypeError when no answer came; an abort is the caller's own doing.
+      if (error instanceof TypeError) noteReachable(false)
+      throw error
+    }
   }
 
-  let response = await send(auth ? (tokens?.getAccessToken() ?? null) : null)
+  let token = auth ? (tokens?.getAccessToken() ?? null) : null
+  if (auth && token === null && tokens?.hasOfflineSession?.()) {
+    // The app opened offline; the API may be back now. Restore the session before asking.
+    token = await tokens.refreshAccessToken().catch(() => null)
+  }
+  let response = await send(token)
 
   if (
     auth &&

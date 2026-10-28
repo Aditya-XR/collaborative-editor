@@ -69,8 +69,12 @@ export function CollaborativeEditor({
 
   if (!editor) return null
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      {editable && <Toolbar editor={editor} />}
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 print:overflow-visible print:rounded-none print:border-0">
+      {editable && (
+        <div className="print:hidden">
+          <Toolbar editor={editor} />
+        </div>
+      )}
       <EditorContent editor={editor} />
       <WordCount editor={editor} />
     </div>
@@ -80,13 +84,15 @@ export function CollaborativeEditor({
 function WordCount({ editor }: { editor: Editor }) {
   const { words, characters } = useEditorState({
     editor,
+    // A destroyed editor has empty storage, and React can render this once more with the old
+    // editor after it was replaced (a new provider, StrictMode): count nothing then.
     selector: ({ editor: e }) => ({
-      words: e.storage.characterCount.words(),
-      characters: e.storage.characterCount.characters(),
+      words: e.storage.characterCount?.words() ?? 0,
+      characters: e.storage.characterCount?.characters() ?? 0,
     }),
   })
   return (
-    <p className="border-t border-slate-100 px-8 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+    <p className="border-t border-slate-100 px-8 py-2 text-xs print:hidden text-slate-500 dark:border-slate-800 dark:text-slate-400">
       {words.toLocaleString()} {words === 1 ? 'word' : 'words'} · {characters.toLocaleString()}{' '}
       {characters === 1 ? 'character' : 'characters'}
     </p>

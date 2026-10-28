@@ -22,6 +22,8 @@ type Listener = () => void
 
 const REFRESH_LOCK = 'collabedit-auth-refresh'
 const CHANNEL = 'collabedit-auth'
+// Who was signed in last, so the app can open offline. A profile, never a credential.
+const REMEMBERED_USER = 'collabedit:last-user'
 // Renew a minute before the access token expires so requests rarely see a 401.
 const EARLY_REFRESH_MS = 60_000
 
@@ -65,6 +67,7 @@ export class SessionManager implements TokenSource {
   start(session: SessionResponse): void {
     this.accessToken = session.access_token
     this.currentUser = session.user
+    remember(session.user)
     this.schedule(session.expires_in)
     this.emit()
   }
@@ -73,7 +76,26 @@ export class SessionManager implements TokenSource {
   updateUser(user: User): void {
     if (this.currentUser?.id !== user.id) return
     this.currentUser = user
+    remember(user)
     this.emit()
+  }
+
+  /**
+   * The API could not be reached to restore the session: carry on as the person who was signed
+   * in last, with their offline copies, until it can (ADR 0019). Requests need a token, so
+   * nothing reaches the server before a real refresh succeeds.
+   */
+  resumeOffline(): boolean {
+    const user = recall()
+    if (!user || this.currentUser) return false
+    this.currentUser = user
+    this.emit()
+    return true
+  }
+
+  /** Signed in from memory only, waiting for the API to confirm the session. */
+  hasOfflineSession(): boolean {
+    return this.currentUser !== null && this.accessToken === null
   }
 
   /** Ends the session locally and tells other tabs to do the same. */
@@ -137,11 +159,37 @@ export class SessionManager implements TokenSource {
     const changed = this.currentUser !== null || this.accessToken !== null
     this.accessToken = null
     this.currentUser = null
+    forget()
     if (changed) this.emit()
   }
 
   private emit(): void {
     for (const listener of this.listeners) listener()
+  }
+}
+
+function remember(user: User): void {
+  try {
+    localStorage.setItem(REMEMBERED_USER, JSON.stringify(user))
+  } catch {
+    // Storage blocked: the app just cannot open offline.
+  }
+}
+
+function recall(): User | null {
+  try {
+    const user = JSON.parse(localStorage.getItem(REMEMBERED_USER) ?? 'null') as User | null
+    return user && typeof user.id === 'string' && typeof user.name === 'string' ? user : null
+  } catch {
+    return null
+  }
+}
+
+function forget(): void {
+  try {
+    localStorage.removeItem(REMEMBERED_USER)
+  } catch {
+    // Nothing was stored.
   }
 }
 

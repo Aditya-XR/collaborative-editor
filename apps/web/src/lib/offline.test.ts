@@ -39,7 +39,20 @@ describe('offline copies', () => {
       'collabedit:u1:registry-only',
       'collabedit:u2:d9',
     ])
-    expect(localStorage.getItem('collabedit:offline-databases')).toBe('[]')
+    expect(localStorage.getItem('collabedit:offline-databases')).toBeNull()
+  })
+
+  it('clears saved lists, pins and the last profile, and nothing of anyone else', async () => {
+    localStorage.setItem('collabedit:u1:queries', '{}')
+    localStorage.setItem('collabedit:u1:pinned', '["d1"]')
+    localStorage.setItem('collabedit:last-user', '{}')
+    localStorage.setItem('collabedit-theme', 'dark')
+    localStorage.setItem('another-app', 'kept')
+    fakeIndexedDB([])
+
+    await wipeOfflineDatabases()
+
+    expect(Object.keys(localStorage).sort()).toEqual(['another-app', 'collabedit-theme'])
   })
 
   it('forgets a copy once its data is cleared', async () => {

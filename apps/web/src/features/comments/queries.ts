@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import type { CollabProvider } from '../editor/CollabProvider'
+import { whenOnServer } from '../offline/queue'
+import { useOutbox } from '../offline/useOutbox'
 import { commentsApi } from './api'
 
 const keys = {
@@ -20,6 +22,7 @@ export function useThreads(
   synced: boolean,
 ) {
   const queryClient = useQueryClient()
+  const outbox = useOutbox()
   const queryKey = keys.threads(documentId, branchId)
 
   useEffect(
@@ -36,7 +39,10 @@ export function useThreads(
 
   return useQuery({
     queryKey,
-    queryFn: () => commentsApi.list(documentId, branchId),
+    queryFn: async () => {
+      await whenOnServer(outbox, documentId)
+      return commentsApi.list(documentId, branchId)
+    },
   })
 }
 

@@ -1,10 +1,13 @@
 import { useEditorState, type Editor } from '@tiptap/react'
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { useAuth } from '../auth/useAuth'
 import type { CollabProvider } from '../editor/CollabProvider'
+import { useOutboxSnapshot } from '../offline/useOutbox'
 import { anchorSelection, type Anchor, type Range } from './anchors'
 import type { Thread } from './api'
 import { showThreads, threadRanges, type CommentHandlers } from './CommentHighlights'
+import { withPending } from './pending'
 import { useThreads } from './queries'
 
 export type Filter = 'open' | 'resolved'
@@ -13,6 +16,8 @@ export interface CommentsController {
   documentId: string
   branchId: string | null
   threads: ReturnType<typeof useThreads>
+  /** Every thread, the ones written offline and not sent yet included. */
+  all: Thread[]
   /** Open or resolved threads, open ones in the order their passages appear. */
   visible: Thread[]
   counts: Record<Filter, number>
@@ -62,6 +67,8 @@ export function useComments({
   canComment: boolean
 }): CommentsController {
   const threads = useThreads(documentId, branchId, provider, synced)
+  const { user } = useAuth()
+  const { entries } = useOutboxSnapshot()
   const [searchParams] = useSearchParams()
   // A thread named in the address (a notification email's link) starts selected and in view.
   const [linkedId] = useState(() => searchParams.get('thread'))
@@ -77,7 +84,16 @@ export function useComments({
       current ? Object.fromEntries(threadRanges(current.state)) : NO_RANGES,
   })
 
-  const all = useMemo(() => threads.data ?? [], [threads.data])
+  const all = useMemo(
+    () =>
+      user
+        ? withPending(threads.data ?? [], entries, documentId, branchId, {
+            id: user.id,
+            name: user.name,
+          })
+        : (threads.data ?? []),
+    [threads.data, entries, documentId, branchId, user],
+  )
   const linked = linkedId ? all.find((t) => t.id === linkedId) : undefined
   // Until someone picks a list, show the one the linked thread is in.
   const filter = chosenFilter ?? (linked?.resolved_at ? 'resolved' : 'open')
@@ -151,6 +167,7 @@ export function useComments({
     documentId,
     branchId,
     threads,
+    all,
     visible,
     counts,
     filter,
